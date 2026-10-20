@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Fetched Metsähallitus / Retkikartta data: private, non-commercial use only.
+# Regenerate with: python3 scripts/fetch_pienriista.py
+data/raw/
+data/areas/
+data/pienriista.geojson
+# Built from the fetched data by scripts/build_web_data.py
+web/data/
