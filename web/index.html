@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pienriista-alueet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <header>
+      <h1>Pienriista-alueet</h1>
+      <p class="sub">Metsähallituksen lupa-alueet maastokartalla</p>
+    </header>
+
+    <div class="controls">
+      <input id="search" type="search" placeholder="Hae nimellä, numerolla tai kunnalla" autocomplete="off">
+      <div class="buttons">
+        <button id="select-all" type="button">Valitse kaikki</button>
+        <button id="select-none" type="button">Poista valinnat</button>
+        <button id="zoom-selected" type="button">Kohdista</button>
+      </div>
+      <div class="fields">
+        <label class="field">Väritys
+          <select id="metric">
+            <option value="">Ei väritystä</option>
+            <option value="yht">Kanalintulupatiheys, yhteensä</option>
+            <option value="kesa">Kanalintulupatiheys, kesäkuu</option>
+            <option value="elo">Kanalintulupatiheys, elokuu</option>
+          </select>
+        </label>
+        <label class="field">Järjestys
+          <select id="sort">
+            <option value="code">Aluenumero</option>
+            <option value="density">Lupatiheys, suurin ensin</option>
+          </select>
+        </label>
+      </div>
+      <details id="metric-hint" class="hint" hidden>
+        <summary>Mitä lupatiheys kertoo?</summary>
+        Kanalinnun metsästysvuorokausia myynnissä 1000 hehtaaria kohden. Mitä enemmän
+        lupia suhteessa pinta-alaan, sitä tiheämmäksi Metsähallitus arvioi kanalintukannan.
+        Elokuun luku sisältää kesällä myymättä jääneet päivät, joten yhteissumma on yläraja.
+      </details>
+      <p id="count" class="count"></p>
+    </div>
+
+    <ul id="area-list" class="area-list"></ul>
+
+    <footer>
+      Aluerajat: Metsähallitus / Retkikartta, vain yksityiseen ja ei-kaupalliseen käyttöön.
+      Tarkista rajat ja luvat aina <a href="https://www.eraluvat.fi" target="_blank" rel="noopener">Eräluvat.fi</a>:stä.
+    </footer>
+  </aside>
+
+  <main id="map">
+    <button id="panel-toggle" type="button" aria-controls="sidebar" aria-expanded="false">Alueet</button>
+    <div id="status" class="status">Ladataan alueita…</div>
+    <div id="legend" class="legend" hidden>
+      <div class="legend-title">Kanalinnun vuorokausilupia / 1000 ha</div>
+      <div id="legend-sub" class="legend-sub"></div>
+      <ol id="legend-items"></ol>
+      <div class="legend-note">Värit: alueiden viidennekset</div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
