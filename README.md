@@ -66,22 +66,29 @@ MapLibre ladataan CDN:stä, kartta-aineisto rakennetaan Pythonin vakiokirjastoll
 #    Vaatii pdftotext (brew install poppler) tai pip install pypdf.
 python3 scripts/parse_kanalintu_quotas.py
 
-# 2. Kevennä rajat selaimelle ja liitä kiintiöt (-> web/data/, ~20 s)
+# 2. Kuntien maakunnat Tilastokeskukselta -> data/kunta_maakunta.csv.
+#    Tarvitaan vain, kun kuntajako muuttuu (yleensä vuodenvaihteessa).
+python3 scripts/fetch_regions.py
+
+# 3. Kevennä rajat selaimelle ja liitä kiintiöt ja maakunnat (-> web/data/, ~20 s)
 python3 scripts/build_web_data.py
 
-# 3. Käynnistä paikallinen palvelin ja avaa http://localhost:8000
+# 4. Käynnistä paikallinen palvelin ja avaa http://localhost:8000
 python3 -m http.server 8000 --directory web
 ```
 
 - Hae alueita nimellä, numerolla, kunnalla tai maakunnalla. Kun haku on päällä,
   *Valitse löydetyt* / *Poista löydetyt* koskevat vain hakutuloksia.
+- *Maakunta*-valinta rajaa listan ja kartan yhden maakunnan alueisiin ja kohdistaa
+  kartan sinne. Usean maakunnan alueelle ulottuva alue näkyy jokaisessa niistä.
+  Valinnat säilyvät, kun maakuntaa vaihtaa.
 - Alueen nimen klikkaus listassa kohdistaa kartan alueeseen. Alueen klikkaus
   kartalla avaa tiedot (lajit, luvat, linkki Retkikarttaan).
 - *Väritys → Kanalintulupatiheys* värittää alueet kanalintulupien tiheyden mukaan
   (ks. alla) ja järjestää listan tihein ensin.
-- Valinta ja väritys tallentuvat osoitteeseen, esim.
-  `http://localhost:8000/#alueet=6617,6619&tiheys=yht`. Ilman `alueet`-osaa
-  näytetään kaikki alueet.
+- Valinta, maakunta ja väritys tallentuvat osoitteeseen, esim.
+  `http://localhost:8000/#alueet=6617,6619&maakunta=Keski-Suomi&tiheys=yht`.
+  Ilman `alueet`-osaa näytetään kaikki alueet.
 
 `build_web_data.py` poistaa rajoista turhat pisteet (Douglas–Peucker, oletuksena
 1 m toleranssi, `--tolerance`) ja pyöristää koordinaatit 6 desimaaliin:
@@ -91,7 +98,12 @@ rajauslaatikon ja nimiön paikan alueen sisältä.
 | Tiedosto | Sisältö |
 | --- | --- |
 | `web/data/areas.geojson` | kevennetyt rajat (`code`, `name`) |
-| `web/data/areas.json` | aluelista: tiedot, `area_ha`, `kanalintu`-kiintiöt, `bbox`, `label` |
+| `web/data/areas.json` | aluelista: tiedot, `regions`, `area_ha`, `kanalintu`-kiintiöt, `bbox`, `label` |
+
+Alueen maakunnat päätellään sen kunnista Tilastokeskuksen kunta–maakunta-luokituksella
+(`data/kunta_maakunta.csv`, CC BY 4.0). Retkikartan omat maakuntatiedot ovat osin
+vanhentuneita (Heinävesi, Joroinen ja Kuhmoinen vaihtoivat maakuntaa 2021), joten
+niitä käytetään vain kunnille, joita luokituksessa ei ole.
 
 Pohjakartta: © OpenTopoMap (CC-BY-SA), © OpenStreetMap-tekijät, SRTM.
 OpenTopoMapin palvelimet on tarkoitettu kevyeen käyttöön, joten kartta sopii

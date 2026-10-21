@@ -1,9 +1,10 @@
 // Pienriista-alueet on OpenTopoMap. Data comes from scripts/build_web_data.py:
 //   data/areas.geojson  simplified boundaries (code, name)
 //   data/areas.json     area details, area_ha, kanalintu quotas, bbox and label point
-// View state is kept in the URL hash: #alueet=6617,6619&tiheys=yht
-//   alueet  selected areas (missing = all)
-//   tiheys  colour areas by kanalintu day permits per 1000 ha (missing = plain view)
+// View state is kept in the URL hash: #alueet=6617,6619&maakunta=Keski-Suomi&tiheys=yht
+//   alueet    selected areas (missing = all)
+//   maakunta  show only areas in this region, list and map (missing = whole country)
+//   tiheys    colour areas by kanalintu day permits per 1000 ha (missing = plain view)
 
 const FINLAND = [[19.1, 59.7], [31.6, 70.1]];
 const AREA_LAYERS = ['areas-fill', 'areas-casing', 'areas-line', 'areas-label'];
@@ -24,6 +25,8 @@ const state = {
   areas: [],
   byCode: new Map(),
   selected: new Set(),
+  region: null, // maakunta name, or null for the whole country
+  regionCodes: new Map(), // maakunta -> Set of area codes touching it
   metric: null, // key of METRICS, or null for the plain area view
   sort: 'code', // 'code' | 'density'
   density: {}, // metric -> { byCode: Map(code -> {days, value, cls, rank}), breaks, count }
@@ -77,18 +80,25 @@ async function init() {
     showStatus('Aluedataa ei löytynyt. Aja ensin: python3 scripts/build_web_data.py', true);
     return;
   }
-  for (const a of state.areas) state.byCode.set(a.code, a);
+  for (const a of state.areas) {
+    state.byCode.set(a.code, a);
+    for (const r of a.regions ?? []) {
+      if (!state.regionCodes.has(r)) state.regionCodes.set(r, new Set());
+      state.regionCodes.get(r).add(a.code);
+    }
+  }
   for (const key of Object.keys(METRICS)) state.density[key] = computeDensity(key);
   if (![...state.byCode.values()].some((a) => a.kanalintu)) $('#metric').disabled = true;
 
   readHash();
+  renderRegionOptions();
   renderList();
   bindControls();
   applyView();
   await styleLoaded;
   addAreaLayers();
   applyView();
-  if (state.selected.size < state.areas.length) zoomTo([...state.selected], { animate: false });
+  if (state.region || state.selected.size < state.areas.length) zoomToView({ animate: false });
 }
 
 // ------------------------------------------------------------------ kanalintu density
@@ -233,21 +243,34 @@ function allCodes() {
   return new Set(state.areas.map((a) => a.code));
 }
 
-// Push the whole view (selection, colouring, sorting) to the map, list, legend and URL.
+// Areas in the chosen region, or all of them.
+function regionCodes() {
+  return state.region ? state.regionCodes.get(state.region) : new Set(state.byCode.keys());
+}
+
+// Areas drawn on the map: selected and in the chosen region.
+function mapCodes() {
+  const inRegion = regionCodes();
+  return [...state.selected].filter((c) => inRegion.has(c));
+}
+
+// Push the whole view (selection, region, colouring, sorting) to the map, list, legend and URL.
 function applyView({ updateHash = true } = {}) {
-  const all = state.selected.size === state.areas.length;
-  const filter = all ? null : ['in', ['get', 'code'], ['literal', [...state.selected]]];
+  const shown = mapCodes();
+  const filter = shown.length === state.areas.length ? null : ['in', ['get', 'code'], ['literal', shown]];
   for (const id of AREA_LAYERS) if (map.getLayer(id)) map.setFilter(id, filter);
   styleLayers();
 
-  const n = state.selected.size;
-  $('#count').textContent = `${n} / ${state.areas.length} aluetta kartalla`;
-  $('#panel-toggle').textContent = `Alueet (${n})`;
+  $('#count').textContent = `${shown.length} / ${regionCodes().size} aluetta kartalla`
+    + (state.region ? ` (${state.region})` : '');
+  $('#panel-toggle').textContent = `Alueet (${shown.length})`;
+  $('#region').value = state.region ?? '';
   $('#metric').value = state.metric ?? '';
   $('#sort').value = state.sort;
   $('#sort').querySelector('[value=density]').disabled = !state.metric;
   $('#metric-hint').hidden = !state.metric;
   updateList();
+  filterList();
   renderLegend();
   if (updateHash) writeHash();
 }
@@ -258,6 +281,7 @@ function readHash() {
   state.selected = codes === null
     ? allCodes()
     : new Set(codes.split(',').map((s) => s.trim()).filter((c) => state.byCode.has(c)));
+  state.region = state.regionCodes.has(params.get('maakunta')) ? params.get('maakunta') : null;
   state.metric = METRICS[params.get('tiheys')] ? params.get('tiheys') : null;
   state.sort = state.metric ? 'density' : 'code';
 }
@@ -265,8 +289,18 @@ function readHash() {
 function writeHash() {
   const parts = [];
   if (state.selected.size < state.areas.length) parts.push(`alueet=${[...state.selected].sort().join(',')}`);
+  if (state.region) parts.push(`maakunta=${encodeURIComponent(state.region)}`);
   if (state.metric) parts.push(`tiheys=${state.metric}`);
   history.replaceState(null, '', parts.length ? `#${parts.join('&')}` : location.pathname + location.search);
+}
+
+// Fit the map to what is shown: the selected areas of the region (or the whole
+// region if none of it is selected), the selection, or the whole country.
+function zoomToView({ animate = true } = {}) {
+  const shown = mapCodes();
+  if (state.region) zoomTo(shown.length ? shown : [...regionCodes()], { animate });
+  else if (shown.length && shown.length < state.areas.length) zoomTo(shown, { animate });
+  else map.fitBounds(FINLAND, { padding: 20, animate });
 }
 
 function zoomTo(codes, { animate = true } = {}) {
@@ -289,9 +323,25 @@ function renderList() {
         el('span', { className: 'title' }, el('span', { className: 'code' }, a.code), a.name),
         el('span', { className: 'muni' }, a.municipality ?? '')),
       el('span', { className: 'side' }));
-    li.searchText = [a.code, a.name, a.municipality, a.province].join(' ').toLowerCase();
+    li.searchText = [a.code, a.name, a.municipality, ...(a.regions ?? [])].join(' ').toLowerCase();
     return li;
   }));
+}
+
+function renderRegionOptions() {
+  const regions = [...state.regionCodes.keys()].sort((x, y) => x.localeCompare(y, 'fi'));
+  $('#region').replaceChildren(
+    el('option', { value: '' }, 'Kaikki maakunnat'),
+    ...regions.map((r) => el('option', { value: r }, `${r} (${state.regionCodes.get(r).size})`)));
+}
+
+// Hide list rows outside the chosen region or not matching the search.
+function filterList() {
+  const q = searchEl.value.trim().toLowerCase();
+  const inRegion = regionCodes();
+  for (const li of listEl.children) li.hidden = !inRegion.has(li.dataset.code) || (!!q && !li.searchText.includes(q));
+  $('#select-all').textContent = q ? 'Valitse löydetyt' : 'Valitse kaikki';
+  $('#select-none').textContent = q ? 'Poista löydetyt' : 'Poista valinnat';
 }
 
 function updateList() {
@@ -356,26 +406,25 @@ function bindControls() {
     setPanelOpen(false);
   });
 
-  searchEl.addEventListener('input', () => {
-    const q = searchEl.value.trim().toLowerCase();
-    for (const li of listEl.children) li.hidden = !!q && !li.searchText.includes(q);
-    $('#select-all').textContent = q ? 'Valitse löydetyt' : 'Valitse kaikki';
-    $('#select-none').textContent = q ? 'Poista löydetyt' : 'Poista valinnat';
+  searchEl.addEventListener('input', filterList);
+  $('#region').addEventListener('change', (e) => {
+    state.region = e.target.value || null;
+    applyView();
+    zoomToView();
   });
 
-  // With a search active, the buttons act on the matching areas only.
-  const visibleCodes = () => [...listEl.children].filter((li) => !li.hidden).map((li) => li.dataset.code);
+  // The buttons act on the listed areas only: those in the region and matching the search.
+  const listedCodes = () => [...listEl.children].filter((li) => !li.hidden).map((li) => li.dataset.code);
   $('#select-all').addEventListener('click', () => {
-    visibleCodes().forEach((c) => state.selected.add(c));
+    listedCodes().forEach((c) => state.selected.add(c));
     applyView();
   });
   $('#select-none').addEventListener('click', () => {
-    visibleCodes().forEach((c) => state.selected.delete(c));
+    listedCodes().forEach((c) => state.selected.delete(c));
     applyView();
   });
   $('#zoom-selected').addEventListener('click', () => {
-    if (state.selected.size === state.areas.length) map.fitBounds(FINLAND, { padding: 20 });
-    else zoomTo([...state.selected]);
+    zoomToView();
     setPanelOpen(false);
   });
 
@@ -399,7 +448,7 @@ function bindControls() {
   window.addEventListener('hashchange', () => {
     readHash();
     applyView({ updateHash: false });
-    if (state.selected.size < state.areas.length) zoomTo([...state.selected]);
+    zoomToView();
   });
 }
 
@@ -418,7 +467,7 @@ function openPopup(code, lngLat) {
   if (!a) return;
   const rows = [
     ['Kunnat', a.municipality],
-    ['Maakunta', a.province],
+    [a.regions?.length > 1 ? 'Maakunnat' : 'Maakunta', a.regions?.join(', ')],
     ['Pinta-ala', formatArea(a.area_ha)],
     ['Riistalajit', a.species],
     ['Kausilupa', a.seasonal_permit_species],

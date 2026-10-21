@@ -7,12 +7,14 @@ tolerance 1 m, invisible on a topo map) and rounds coordinates to 6 decimals.
 MapLibre then simplifies further per zoom level on its own.
 
 Kanalintu day-permit quotas from data/kanalintu_quotas.csv (parse_kanalintu_quotas.py)
-are attached to each area when that file exists.
+are attached to each area when that file exists. Each area's regions (maakunnat) come
+from its municipalities via data/kunta_maakunta.csv (fetch_regions.py), falling back
+to Retkikartta's own, partly outdated, region per municipality.
 
 Outputs (default under web/data/):
   areas.geojson   one MultiPolygon per area, properties: code, name
-  areas.json      area list for the sidebar and popups: details, area_ha, kanalintu
-                  quotas, bbox, label point
+  areas.json      area list for the sidebar and popups: details, regions, area_ha,
+                  kanalintu quotas, bbox, label point
 
 Standard library only (Python 3.9+).
 """
@@ -30,17 +32,18 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "data" / "pienriista.geojson"
 QUOTAS = REPO / "data" / "kanalintu_quotas.csv"
+REGIONS = REPO / "data" / "kunta_maakunta.csv"
 OUT = REPO / "web" / "data"
 
 EARTH_RADIUS = 6371008.8
 M_PER_DEG = EARTH_RADIUS * math.pi / 180
 
 INFO_FIELDS = [
-    "municipality", "province", "species", "recommended_species",
+    "municipality", "species", "recommended_species",
     "seasonal_permit_species", "daily_permit_species", "reindeer_herding_area",
     "usage_restriction", "retkikartta_url",
 ]
-LIST_FIELDS = {"municipality", "province"}  # "Lappi, Lappi" -> "Lappi"
+LIST_FIELDS = {"municipality"}  # "Inari, Inari" -> "Inari"
 
 Ring = list  # [[lon, lat], ...], closed
 
@@ -208,11 +211,41 @@ def load_quotas(path: Path) -> dict[str, dict]:
         }
 
 
-def area_info(props: dict, polys: list, quotas: dict[str, dict] | None = None) -> dict:
+def load_regions(path: Path) -> dict[str, str]:
+    """data/kunta_maakunta.csv -> municipality name -> region name."""
+    with path.open(newline="", encoding="utf-8") as f:
+        return {r["municipality"]: r["region"] for r in csv.DictReader(f)}
+
+
+def split_list(value: str | None) -> list[str]:
+    return [s.strip() for s in (value or "").split(",") if s.strip()]
+
+
+def area_regions(props: dict, regions: dict[str, str]) -> list[str]:
+    """Regions of an area's municipalities, in order, without repeats.
+
+    Retkikartta's "province" lists one region per municipality, in the same order;
+    it is used only for municipalities missing from the official table.
+    """
+    fallback = split_list(props.get("province"))
+    out = []
+    for i, muni in enumerate(split_list(props.get("municipality"))):
+        region = regions.get(muni) or (fallback[i] if i < len(fallback) else None)
+        if region and region not in out:
+            out.append(region)
+    for region in fallback if not out else []:  # no municipalities listed at all
+        if region not in out:
+            out.append(region)
+    return out
+
+
+def area_info(props: dict, polys: list, quotas: dict[str, dict] | None = None,
+              regions: dict[str, str] | None = None) -> dict:
     info = {"code": props["code"], "name": props["name"]}
     for k in INFO_FIELDS:
         v = props.get(k)
         info[k] = dedupe_list(v) if k in LIST_FIELDS else v
+    info["regions"] = area_regions(props, regions or {})
     area_ha = parse_area_ha(props.get("area"))
     info["area_ha"] = round(area_ha if area_ha is not None else area_m2(polys) / 1e4, 1)
     info["kanalintu"] = (quotas or {}).get(props["code"])
@@ -229,6 +262,8 @@ def main() -> None:
     ap.add_argument("--out-dir", type=Path, default=OUT, help="output directory (default: web/data/)")
     ap.add_argument("--quotas", type=Path, default=QUOTAS,
                     help="kanalintu quota CSV (default: data/kanalintu_quotas.csv, skipped if missing)")
+    ap.add_argument("--regions", type=Path, default=REGIONS,
+                    help="municipality -> region CSV (default: data/kunta_maakunta.csv, Retkikartta's if missing)")
     ap.add_argument("--tolerance", type=float, default=1.0,
                     help="simplification tolerance in metres (default: 1.0, 0 = keep every vertex)")
     args = ap.parse_args()
@@ -239,6 +274,9 @@ def main() -> None:
     quotas = load_quotas(args.quotas) if args.quotas.exists() else {}
     if not quotas:
         print(f"no kanalintu quotas ({args.quotas} missing), run scripts/parse_kanalintu_quotas.py")
+    regions = load_regions(args.regions) if args.regions.exists() else {}
+    if not regions:
+        print(f"no region table ({args.regions} missing), using Retkikartta's regions; run scripts/fetch_regions.py")
 
     features, infos = [], []
     before = after = 0
@@ -252,7 +290,7 @@ def main() -> None:
             "properties": {"code": props["code"], "name": props["name"]},
             "geometry": {"type": "MultiPolygon", "coordinates": simple},
         })
-        infos.append(area_info(props, polys, quotas))
+        infos.append(area_info(props, polys, quotas, regions))
         print(f"\r{len(features)}/{len(src['features'])} {props['code']} {props['name']:<30}", end="", flush=True)
     print()
 
@@ -267,6 +305,14 @@ def main() -> None:
     if quotas:
         missing = [i["code"] for i in infos if not i["kanalintu"]]
         print(f"kanalintu quotas for {len(infos) - len(missing)} areas" + (f", missing: {', '.join(missing)}" if missing else ""))
+    if regions:
+        props_by_code = {f["properties"]["code"]: f["properties"] for f in src["features"]}
+        unknown = sorted({m for p in props_by_code.values() for m in split_list(p.get("municipality"))} - set(regions))
+        print(f"regions from {args.regions.name}" + (f"; not in table (kept Retkikartta's): {', '.join(unknown)}" if unknown else ""))
+        for i in infos:
+            old = dedupe_list(props_by_code[i["code"]].get("province")) or ""
+            if set(split_list(old)) != set(i["regions"]):
+                print(f"  region corrected: {i['code']} {i['name']}: {old} -> {', '.join(i['regions'])}")
     for p in (geo_path, info_path):
         print(f"  {p.relative_to(REPO) if p.is_relative_to(REPO) else p}  {p.stat().st_size / 1e6:.1f} MB")
 
