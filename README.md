@@ -137,6 +137,44 @@ kuvaa karkeasti kannan tiheyttä. Huomioita:
 - Lupamäärään vaikuttavat kannan lisäksi myös metsästyspaine ja aluekohtaiset
   linjaukset, ja pienillä alueilla luku heiluu helposti.
 
+## iPhone-sovellus
+
+`ios/` sisältää iPhone-sovelluksen (SwiftUI + [MapLibre Native](https://github.com/maplibre/maplibre-native),
+iOS 17+). MVP:
+
+- OpenTopoMap-maastokartta pohjana (`ios/HuntersMap/TopoStyle.json`; vaihdetaan
+  myöhemmin MML:n vektorimaastokarttaan)
+- GPS-sijainti kartalla; sijaintinappi kiertää *ei seurantaa → seuraa → seuraa suuntaa*
+- Kanalintualueen valinta haettavasta listasta (nimi, numero, kunta tai maakunta).
+  Valittu alue piirretään kartalle ja kartta kohdistuu siihen; valinta säilyy
+  käynnistysten välillä. Kaikkien kanalintualueiden rajat näkyvät himmeinä katkoviivoina.
+- Zoomausnapit (+/−) nipistyksen lisäksi, esim. hanskat kädessä
+- Reitin tallennus (kävelijä-nappi): kuljettu reitti näkyy sinisenä jälkenä, joka
+  haalistuu 15 minuutissa (`TrackRecorder.window`). Tallennus jatkuu näytön ollessa
+  lukittuna (taustasijainti, `ios/HuntersMap-Info.plist`; iOS näyttää sinisen
+  sijaintimerkin) ja jatkuu sovelluksen uudelleenkäynnistyksen jälkeen.
+  Jatkuva GPS kuluttaa akkua, joten lopeta tallennus, kun et tarvitse sitä.
+
+Sovellus käyttää samoja tiedostoja kuin selainkartta: Xcoden *Copy area data*
+-vaihe kopioi `web/data/areas.json` ja `areas.geojson` sovellukseen, joten aja
+ensin `python3 scripts/build_web_data.py`.
+
+```sh
+open ios/HuntersMap.xcodeproj
+```
+
+Valitse Xcodessa simulaattori ja paina ⌘R. Omalle iPhonelle:
+
+1. Xcode → Settings → Accounts: lisää Apple ID.
+2. Projektin *HuntersMap*-targetin *Signing & Capabilities*: valitse *Team*
+   (ilmaisella Apple ID:llä "Personal Team"). Jos bundle id `fi.ridefree.huntersmap`
+   on varattu, vaihda se.
+3. Kytke iPhone, salli *Kehittäjätila* (Asetukset → Tietosuoja ja turvallisuus),
+   valitse puhelin Xcoden kohteeksi ja paina ⌘R.
+
+Ilmaisella tilillä asennus vanhenee 7 päivässä; TestFlight vaatii Apple Developer
+Programin.
+
 ## Testit
 
 ```sh

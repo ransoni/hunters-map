@@ -9,3 +9,8 @@ data/areas/
 data/pienriista.geojson
 # Built from the fetched data by scripts/build_web_data.py
 web/data/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+ios/build/
