@@ -13,6 +13,7 @@
 html, body {
   margin: 0;
   height: 100%;
+  overflow: hidden; /* full-screen app; the phone sheet sits below the screen when closed */
 }
 
 body {
@@ -50,6 +51,17 @@ h1 { margin: 0; font-size: 18px; }
   background: #fff;
 }
 #search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+#region {
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 6px;
+  font: inherit;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
 
 .buttons {
   display: flex;
@@ -261,6 +273,11 @@ footer a, .popup a { color: var(--accent); }
     transition: transform 0.2s ease;
   }
   body.panel-open #sidebar { transform: none; }
+
+  /* Short screens: scroll the whole sheet, so the controls never squeeze out the list. */
+  #sidebar { overflow-y: auto; overscroll-behavior: contain; }
+  .area-list { flex: none; overflow: visible; }
+  .sub { display: none; }
 
   .legend { padding: 6px 8px; font-size: 11px; }
   .legend ol { margin: 4px 0 0; }

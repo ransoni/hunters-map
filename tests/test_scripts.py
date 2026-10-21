@@ -11,6 +11,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import build_web_data as bw  # noqa: E402
 import fetch_pienriista as fp  # noqa: E402
+import fetch_regions as fr  # noqa: E402
 import parse_kanalintu_quotas as kq  # noqa: E402
 import parse_pdf_areas as pp  # noqa: E402
 
@@ -122,7 +123,7 @@ class BuildWebDataTests(unittest.TestCase):
         polys = [[square(25, 65, 0.5)], [square(26, 66, 0.1)]]
         props = {"code": "1234", "name": "Testi", "province": "Lappi, Lappi", "municipality": "Inari, Utsjoki"}
         info = bw.area_info(props, polys)
-        self.assertEqual(info["province"], "Lappi")
+        self.assertEqual(info["regions"], ["Lappi"])
         self.assertEqual(info["municipality"], "Inari, Utsjoki")
         self.assertEqual(info["bbox"], [25, 65, 26.1, 66.1])
         self.assertTrue(fp.point_in_ring(tuple(info["label"]), square(25, 65, 0.5)))
@@ -152,6 +153,51 @@ class BuildWebDataTests(unittest.TestCase):
         self.assertEqual(info["area_ha"], 535.6)
         self.assertEqual(info["kanalintu"], {"year": 2026, "phase1_days": 87, "phase1_max_per_day": 7,
                                              "phase2_days": 0, "phase2_max_per_day": None})
+
+
+class RegionTests(unittest.TestCase):
+    TABLE = {"Heinävesi": "Pohjois-Karjala", "Liperi": "Pohjois-Karjala", "Joroinen": "Pohjois-Savo",
+             "Pieksämäki": "Etelä-Savo"}
+
+    def test_official_table_overrides_retkikartta(self):
+        # Retkikartta still has Heinävesi in Etelä-Savo (it moved in 2021).
+        props = {"municipality": "Heinävesi, Liperi", "province": "Etelä-Savo, Pohjois-Karjala"}
+        self.assertEqual(bw.area_regions(props, self.TABLE), ["Pohjois-Karjala"])
+
+    def test_order_kept_and_deduped(self):
+        props = {"municipality": "Joroinen, Pieksämäki, Liperi, Heinävesi", "province": "x, x, x, x"}
+        self.assertEqual(bw.area_regions(props, self.TABLE), ["Pohjois-Savo", "Etelä-Savo", "Pohjois-Karjala"])
+
+    def test_fallback_to_retkikartta(self):
+        props = {"municipality": "Inari, Heinävesi", "province": "Lappi, Etelä-Savo"}
+        self.assertEqual(bw.area_regions(props, self.TABLE), ["Lappi", "Pohjois-Karjala"])
+        self.assertEqual(bw.area_regions(props, {}), ["Lappi", "Etelä-Savo"])
+        self.assertEqual(bw.area_regions({"province": "Kainuu"}, self.TABLE), ["Kainuu"])
+        self.assertEqual(bw.area_regions({}, self.TABLE), [])
+
+    def test_load_regions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "r.csv"
+            path.write_text("municipality_code,municipality,region_code,region\n"
+                            "090,Heinävesi,12,Pohjois-Karjala\n", encoding="utf-8")
+            self.assertEqual(bw.load_regions(path), {"Heinävesi": "Pohjois-Karjala"})
+
+    def test_parse_statfi_table(self):
+        def item(code, name):
+            return {"code": code, "classificationItemNames": [{"lang": "sv", "name": "x"}, {"lang": "fi", "name": name}]}
+        data = [{"sourceItem": item("171", "Joroinen"), "targetItem": item("11", "Pohjois-Savo")},
+                {"sourceItem": item("090", "Heinävesi"), "targetItem": item("12", "Pohjois-Karjala")}]
+        self.assertEqual(fr.parse_table(data), [
+            {"municipality_code": "090", "municipality": "Heinävesi", "region_code": "12", "region": "Pohjois-Karjala"},
+            {"municipality_code": "171", "municipality": "Joroinen", "region_code": "11", "region": "Pohjois-Savo"},
+        ])
+        self.assertIn("kunta_1_20260101%23maakunta_1_20260101", fr.table_url(2026))
+
+    def test_committed_table(self):
+        table = bw.load_regions(REPO / "data" / "kunta_maakunta.csv")
+        self.assertGreater(len(table), 280)  # 308 in 2026; mergers only shrink it
+        self.assertEqual(len(set(table.values())), 19)
+        self.assertEqual(table["Kuhmoinen"], "Pirkanmaa")
 
 
 class KanalintuQuotaTests(unittest.TestCase):
