@@ -334,3 +334,72 @@ func TestMemoryRejectsReadAfterWrite(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func (f *fixture) track(gid, uid string) *store.Track {
+	var tr *store.Track
+	_ = f.mem.RunTx(context.Background(), func(tx store.Tx) error {
+		tr, _ = tx.GetTrack(gid, uid)
+		return nil
+	})
+	return tr
+}
+
+func TestTracks(t *testing.T) {
+	f := newFixture()
+	ctx := context.Background()
+	g := f.groupWith(t, alice, bob)
+	must(f.svc.SetSharing(ctx, "alice", g.ID, ptr(f.now.Add(MaxSharing))))
+
+	// Walking north ~11 m per update: every update is a new point.
+	for i := 0; i < 5; i++ {
+		must(f.svc.UpdateLocation(ctx, "alice", LocationUpdate{Lat: 62.5 + float64(i)*0.0001, Lon: 25.0, Accuracy: 5}))
+		f.now = f.now.Add(20 * time.Second)
+	}
+	if n := len(f.track(g.ID, "alice").Points); n != 5 {
+		t.Fatalf("moving: %d points, want 5", n)
+	}
+
+	// Standing still: updates within a minute don't add points, but a minute later one is
+	// added so the track shows the time spent there.
+	still := LocationUpdate{Lat: 62.5004, Lon: 25.0, Accuracy: 5}
+	for i := 0; i < 3; i++ { // 20 s after the last walking point, then +10 s, +10 s: < 1 min
+		must(f.svc.UpdateLocation(ctx, "alice", still))
+		f.now = f.now.Add(10 * time.Second)
+	}
+	if n := len(f.track(g.ID, "alice").Points); n != 5 {
+		t.Errorf("standing still added points: %d", n)
+	}
+	f.now = f.now.Add(time.Minute)
+	must(f.svc.UpdateLocation(ctx, "alice", still))
+	if n := len(f.track(g.ID, "alice").Points); n != 6 {
+		t.Errorf("minute-later point missing: %d", n)
+	}
+
+	// Points older than the window are dropped.
+	f.now = f.now.Add(TrackWindow - time.Minute)
+	must(f.svc.UpdateLocation(ctx, "alice", LocationUpdate{Lat: 62.51, Lon: 25.0, Accuracy: 5}))
+	tr := f.track(g.ID, "alice")
+	if len(tr.Points) != 2 || !tr.ExpireAt.After(f.now) {
+		t.Errorf("after window: %d points (want the minute-later one and the new one), expireAt %v", len(tr.Points), tr.ExpireAt)
+	}
+
+	// Stopping sharing removes the track.
+	must(f.svc.SetSharing(ctx, "alice", g.ID, nil))
+	if f.track(g.ID, "alice") != nil {
+		t.Errorf("track kept after stopping")
+	}
+
+	// So do leaving and deleting the group.
+	must(f.svc.SetSharing(ctx, "bob", g.ID, ptr(f.now.Add(time.Hour))))
+	must(f.svc.UpdateLocation(ctx, "bob", still))
+	noErr(t, f.svc.RemoveMember(ctx, "bob", g.ID, "bob"))
+	if f.track(g.ID, "bob") != nil {
+		t.Errorf("track kept after leaving")
+	}
+	must(f.svc.SetSharing(ctx, "alice", g.ID, ptr(f.now.Add(time.Hour))))
+	must(f.svc.UpdateLocation(ctx, "alice", still))
+	noErr(t, f.svc.DeleteGroup(ctx, "alice", g.ID))
+	if f.track(g.ID, "alice") != nil {
+		t.Errorf("track kept after deleting the group")
+	}
+}

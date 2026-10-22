@@ -21,7 +21,7 @@ struct TrackPoint: Codable, Equatable {
 
 final class TrackRecorder: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// How much of the track is shown.
-    static let window: TimeInterval = 15 * 60
+    static let window: TimeInterval = 60 * 60
     /// Fixes less accurate than this (metres) are skipped, so the trail doesn't zigzag.
     private static let maxAccuracy: CLLocationAccuracy = 30
 

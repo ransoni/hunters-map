@@ -92,10 +92,18 @@ resource "google_firestore_database" "main" {
   depends_on = [google_project_service.this]
 }
 
-# TTL: Firestore deletes shared positions after sharing has ended, and expired invites.
+# TTL: Firestore deletes shared positions and tracks after sharing has ended, and expired invites.
 resource "google_firestore_field" "location_ttl" {
   database   = google_firestore_database.main.name
   collection = "locations"
+  field      = "expireAt"
+
+  ttl_config {}
+}
+
+resource "google_firestore_field" "track_ttl" {
+  database   = google_firestore_database.main.name
+  collection = "tracks"
   field      = "expireAt"
 
   ttl_config {}
@@ -238,12 +246,14 @@ resource "google_cloud_run_v2_service" "api" {
     }
   }
 
-  # infra/deploy.sh rolls out new images; Terraform owns everything else.
+  # infra/deploy.sh rolls out new images; Terraform owns everything else. `gcloud run services
+  # update` also fills in the service-level scaling block (all zeros), which isn't drift.
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
       client,
       client_version,
+      scaling,
     ]
   }
 

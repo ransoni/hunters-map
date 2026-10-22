@@ -23,6 +23,10 @@ service cloud.firestore {
       match /locations/{userId} {
         allow read: if isMember(groupId);
       }
+
+      match /tracks/{userId} {
+        allow read: if isMember(groupId);
+      }
     }
 
     match /users/{userId} {

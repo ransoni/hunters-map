@@ -4,6 +4,9 @@
 //
 //	go run ./cmd/simhunter -group <groupId> [-lat 62.5277 -lon 25.0317] [-name Testimetsästäjä]
 //
+// It alternates walking (-walk) and standing still (-pause), so trails, direction arrows and
+// "paikallaan X min" labels can all be seen.
+//
 // The group id is shown by `GET /v1/groups` or in Firestore under groups/.
 package main
 
@@ -22,6 +25,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/ransoni/hunters-map/backend/internal/service"
 	"github.com/ransoni/hunters-map/backend/internal/store"
 )
 
@@ -38,6 +42,8 @@ func main() {
 	speed := flag.Float64("speed", 1.4, "walking speed, m/s (try 5 to see movement faster)")
 	interval := flag.Duration("interval", 5*time.Second, "how often the position is updated")
 	duration := flag.Duration("duration", 2*time.Hour, "sharing duration")
+	walkFor := flag.Duration("walk", 3*time.Minute, "walk this long, then stand still for -pause")
+	pauseFor := flag.Duration("pause", 7*time.Minute, "stand still this long (0 = never stop)")
 	flag.Parse()
 	if *group == "" {
 		flag.Usage()
@@ -60,6 +66,8 @@ func main() {
 	uid := "sim-" + strings.ToLower(strings.Join(strings.Fields(*name), "-"))
 	memberRef := groupRef.Collection("members").Doc(uid)
 	locationRef := groupRef.Collection("locations").Doc(uid)
+	trackRef := groupRef.Collection("tracks").Doc(uid)
+	track := &store.Track{UserID: uid}
 
 	until := time.Now().UTC().Add(*duration)
 	member := &store.Member{DisplayName: *name, Role: store.RoleMember, JoinedAt: time.Now().UTC(), SharingUntil: &until}
@@ -73,9 +81,10 @@ func main() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_, err1 := locationRef.Delete(cleanup)
-		_, err2 := memberRef.Delete(cleanup)
-		if err1 != nil || err2 != nil {
-			log.Printf("cleanup failed (delete groups/%s/{members,locations}/%s by hand): %v %v", *group, uid, err1, err2)
+		_, err2 := trackRef.Delete(cleanup)
+		_, err3 := memberRef.Delete(cleanup)
+		if err1 != nil || err2 != nil || err3 != nil {
+			log.Printf("cleanup failed (delete groups/%s/{members,locations,tracks}/%s by hand): %v %v %v", *group, uid, err1, err2, err3)
 			return
 		}
 		log.Printf("%s removed", *name)
@@ -84,22 +93,36 @@ func main() {
 	w := walker{x: 0, y: 0, heading: rand.Float64() * 2 * math.Pi, radius: *radius}
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
+	started := time.Now()
 	for {
 		la, lo := w.position(*lat, *lon)
 		now := time.Now().UTC()
-		heading := math.Mod(90-w.heading*180/math.Pi+360, 360) // compass degrees
+		walking := isWalking(time.Since(started), *walkFor, *pauseFor)
 		loc := &store.Location{
 			DisplayName: *name, Lat: la, Lon: lo, Accuracy: 5 + rand.Float64()*5,
-			Heading: &heading, Speed: speed,
 			RecordedAt: now, UpdatedAt: now, SharingUntil: until, ExpireAt: until.Add(time.Hour),
 		}
-		if _, err := locationRef.Set(ctx, loc); err != nil {
+		if walking { // like the app: a direction only while moving
+			heading := math.Mod(90-w.heading*180/math.Pi+360, 360) // compass degrees
+			loc.Heading, loc.Speed = &heading, speed
+		}
+		service.AppendTrackPoint(track, store.TrackPoint{Lat: la, Lon: lo, T: now}, now)
+		track.UpdatedAt, track.ExpireAt = now, loc.ExpireAt
+		_, err := locationRef.Set(ctx, loc)
+		if err == nil {
+			_, err = trackRef.Set(ctx, track)
+		}
+		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
 			log.Printf("update failed: %v", err)
 		} else {
-			fmt.Printf("\r%s  %.5f, %.5f  ", now.Local().Format("15:04:05"), la, lo)
+			state := "kävelee"
+			if !walking {
+				state = "paikallaan"
+			}
+			fmt.Printf("\r%s  %.5f, %.5f  %-10s  %d pistettä  ", now.Local().Format("15:04:05"), la, lo, state, len(track.Points))
 		}
 
 		select {
@@ -107,9 +130,19 @@ func main() {
 			fmt.Println()
 			return
 		case <-ticker.C:
-			w.step(*speed * interval.Seconds())
+			if walking {
+				w.step(*speed * interval.Seconds())
+			}
 		}
 	}
+}
+
+// isWalking: walk for `walk`, stand still for `pause`, repeat.
+func isWalking(elapsed, walk, pause time.Duration) bool {
+	if pause <= 0 {
+		return true
+	}
+	return elapsed%(walk+pause) < walk
 }
 
 // walker wanders like a person: small random turns, steering back towards the centre when

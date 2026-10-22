@@ -31,6 +31,20 @@ struct HunterPosition: Identifiable, Equatable {
     static let staleAfter: TimeInterval = 5 * 60
 
     func isStale(now: Date = .now) -> Bool { now.timeIntervalSince(updatedAt) > Self.staleAfter }
+
+    /// Since when the hunter has stayed within `stillRadius` of this position, from their
+    /// track (nil without a track).
+    var stillSince: Date?
+    static let stillRadius: CLLocationDistance = 30
+    /// Shown as "paikallaan X min" from this long on.
+    static let stillAfter: TimeInterval = 5 * 60
+
+    /// Minutes standing still, when that's at least `stillAfter` and the position is fresh.
+    func stillMinutes(now: Date = .now) -> Int? {
+        guard let stillSince, !isStale(now: now) else { return nil }
+        let still = now.timeIntervalSince(stillSince)
+        return still >= Self.stillAfter ? Int(still / 60) : nil
+    }
 }
 
 @MainActor
@@ -52,9 +66,10 @@ final class SharingModel: ObservableObject {
     /// Other hunters currently sharing in any of the caller's groups (one entry per person).
     @Published private(set) var hunters: [HunterPosition] = []
     @Published private(set) var positionsByGroup: [String: [String: HunterPosition]] = [:]
-    /// Each hunter's positions from the last TrackRecorder.window, collected from the live
-    /// updates while the app is open (the server keeps only the latest position).
+    /// Each hunter's track from the last TrackRecorder.window (server-side, groups/{id}/tracks).
     @Published private(set) var trails: [String: [TrackPoint]] = [:]
+    private var tracksByGroup: [String: [String: [TrackPoint]]] = [:]
+    private var trackListeners: [String: ListenerRegistration] = [:]
     @Published private(set) var lastUpload: Date?
     @Published var errorMessage: String?
 
@@ -250,6 +265,9 @@ final class SharingModel: ObservableObject {
             listener.remove()
             listeners[id] = nil
             positionsByGroup[id] = nil
+            trackListeners[id]?.remove()
+            trackListeners[id] = nil
+            tracksByGroup[id] = nil
         }
         for id in wanted where listeners[id] == nil {
             listeners[id] = db.collection("groups").document(id).collection("locations")
@@ -262,6 +280,19 @@ final class SharingModel: ObservableObject {
                     Task { @MainActor in
                         guard let self, self.listeners[id] != nil else { return }
                         self.positionsByGroup[id] = Dictionary(positions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                        self.recomputeHunters()
+                    }
+                }
+            trackListeners[id] = db.collection("groups").document(id).collection("tracks")
+                .addSnapshotListener { [weak self] snapshot, error in
+                    guard let snapshot else {
+                        print("tracks listener \(id): \(error?.localizedDescription ?? "?")")
+                        return
+                    }
+                    let tracks = snapshot.documents.map { ($0.documentID, Self.trackPoints($0)) }
+                    Task { @MainActor in
+                        guard let self, self.trackListeners[id] != nil else { return }
+                        self.tracksByGroup[id] = Dictionary(tracks, uniquingKeysWith: { a, _ in a })
                         self.recomputeHunters()
                     }
                 }
@@ -278,18 +309,42 @@ final class SharingModel: ObservableObject {
                 latest[p.id] = p
             }
         }
+        // Trails: a hunter shares the same track in every group; take the freshest copy.
+        var newTrails: [String: [TrackPoint]] = [:]
+        for id in latest.keys {
+            let copies = tracksByGroup.values.compactMap { $0[id] }
+            let track = copies.max { ($0.last?.time ?? .distantPast) < ($1.last?.time ?? .distantPast) } ?? []
+            newTrails[id] = track.filter { now.timeIntervalSince($0.time) <= TrackRecorder.window }
+        }
+        for (id, track) in newTrails {
+            guard let position = latest[id] else { continue }
+            latest[id]?.stillSince = Self.stillSince(track, at: position)
+        }
+
         let sorted = latest.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         if sorted != hunters { hunters = sorted }
-
-        var newTrails: [String: [TrackPoint]] = [:]
-        for h in sorted {
-            var track = (trails[h.id] ?? []).filter { now.timeIntervalSince($0.time) <= TrackRecorder.window }
-            if h.updatedAt > track.last?.time ?? .distantPast {
-                track.append(TrackPoint(latitude: h.latitude, longitude: h.longitude, time: h.updatedAt))
-            }
-            newTrails[h.id] = track
-        }
         if newTrails != trails { trails = newTrails }
+    }
+
+    /// Start of the track's final stretch that stays within `stillRadius` of the position.
+    private static func stillSince(_ track: [TrackPoint], at position: HunterPosition) -> Date? {
+        let here = CLLocation(latitude: position.latitude, longitude: position.longitude)
+        var since: Date?
+        for point in track.reversed() {
+            let there = CLLocation(latitude: point.latitude, longitude: point.longitude)
+            if there.distance(from: here) > HunterPosition.stillRadius { break }
+            since = point.time
+        }
+        return since
+    }
+
+    private nonisolated static func trackPoints(_ doc: QueryDocumentSnapshot) -> [TrackPoint] {
+        let points = doc.data()["points"] as? [[String: Any]] ?? []
+        return points.compactMap { p in
+            guard let lat = p["lat"] as? Double, let lon = p["lon"] as? Double,
+                  let t = (p["t"] as? Timestamp)?.dateValue() else { return nil }
+            return TrackPoint(latitude: lat, longitude: lon, time: t)
+        }
     }
 
     private nonisolated static func position(_ doc: QueryDocumentSnapshot) -> HunterPosition? {

@@ -41,6 +41,9 @@ func (t *fsTx) members(gid string) *firestore.CollectionRef {
 func (t *fsTx) locations(gid string) *firestore.CollectionRef {
 	return t.groups().Doc(gid).Collection("locations")
 }
+func (t *fsTx) tracks(gid string) *firestore.CollectionRef {
+	return t.groups().Doc(gid).Collection("tracks")
+}
 
 // get reads one document into dst and maps a missing document to ErrNotFound.
 func (t *fsTx) get(ref *firestore.DocumentRef, dst any) error {
@@ -115,6 +118,32 @@ func (t *fsTx) ListLocations(groupID string) ([]*Location, error) {
 	return out, nil
 }
 
+func (t *fsTx) GetTrack(groupID, userID string) (*Track, error) {
+	var tr Track
+	if err := t.get(t.tracks(groupID).Doc(userID), &tr); err != nil {
+		return nil, err
+	}
+	tr.UserID = userID
+	return &tr, nil
+}
+
+func (t *fsTx) ListTracks(groupID string) ([]*Track, error) {
+	snaps, err := t.tx.Documents(t.tracks(groupID)).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Track, 0, len(snaps))
+	for _, s := range snaps {
+		var tr Track
+		if err := s.DataTo(&tr); err != nil {
+			return nil, err
+		}
+		tr.UserID = s.Ref.ID
+		out = append(out, &tr)
+	}
+	return out, nil
+}
+
 func (t *fsTx) GetInvite(code string) (*Invite, error) {
 	var inv Invite
 	if err := t.get(t.invites().Doc(code), &inv); err != nil {
@@ -144,4 +173,10 @@ func (t *fsTx) SetLocation(groupID string, loc *Location) error {
 }
 func (t *fsTx) DeleteLocation(groupID, userID string) error {
 	return t.tx.Delete(t.locations(groupID).Doc(userID))
+}
+func (t *fsTx) SetTrack(groupID string, tr *Track) error {
+	return t.tx.Set(t.tracks(groupID).Doc(tr.UserID), tr)
+}
+func (t *fsTx) DeleteTrack(groupID, userID string) error {
+	return t.tx.Delete(t.tracks(groupID).Doc(userID))
 }

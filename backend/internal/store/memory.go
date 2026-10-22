@@ -16,6 +16,7 @@ type Memory struct {
 	groups    map[string]Group
 	members   map[string]map[string]Member   // groupID -> userID -> member
 	locations map[string]map[string]Location // groupID -> userID -> location
+	tracks    map[string]map[string]Track    // groupID -> userID -> track
 	invites   map[string]Invite
 }
 
@@ -25,6 +26,7 @@ func NewMemory() *Memory {
 		groups:    map[string]Group{},
 		members:   map[string]map[string]Member{},
 		locations: map[string]map[string]Location{},
+		tracks:    map[string]map[string]Track{},
 		invites:   map[string]Invite{},
 	}
 }
@@ -123,6 +125,33 @@ func (t *memTx) ListLocations(groupID string) ([]*Location, error) {
 	return out, nil
 }
 
+func (t *memTx) GetTrack(groupID, userID string) (*Track, error) {
+	if err := t.read(); err != nil {
+		return nil, err
+	}
+	tr, ok := t.m.tracks[groupID][userID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	tr.UserID = userID
+	tr.Points = append([]TrackPoint(nil), tr.Points...)
+	return &tr, nil
+}
+
+func (t *memTx) ListTracks(groupID string) ([]*Track, error) {
+	if err := t.read(); err != nil {
+		return nil, err
+	}
+	var out []*Track
+	for id, tr := range t.m.tracks[groupID] {
+		tr.UserID = id
+		tr.Points = append([]TrackPoint(nil), tr.Points...)
+		out = append(out, &tr)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
+	return out, nil
+}
+
 func (t *memTx) GetInvite(code string) (*Invite, error) {
 	if err := t.read(); err != nil {
 		return nil, err
@@ -193,5 +222,22 @@ func (t *memTx) SetLocation(groupID string, loc *Location) error {
 
 func (t *memTx) DeleteLocation(groupID, userID string) error {
 	t.writes = append(t.writes, func() { delete(t.m.locations[groupID], userID) })
+	return nil
+}
+
+func (t *memTx) SetTrack(groupID string, tr *Track) error {
+	v := *tr
+	v.Points = append([]TrackPoint(nil), tr.Points...)
+	t.writes = append(t.writes, func() {
+		if t.m.tracks[groupID] == nil {
+			t.m.tracks[groupID] = map[string]Track{}
+		}
+		t.m.tracks[groupID][v.UserID] = v
+	})
+	return nil
+}
+
+func (t *memTx) DeleteTrack(groupID, userID string) error {
+	t.writes = append(t.writes, func() { delete(t.m.tracks[groupID], userID) })
 	return nil
 }

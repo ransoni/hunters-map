@@ -17,6 +17,8 @@ struct MapView: UIViewRepresentable {
     let hunters: [HunterPosition]
     /// Their recent positions (seen while the app is open), drawn as fading trails.
     let hunterTrails: [String: [TrackPoint]]
+    /// How many of the latest minutes of each trail are drawn in colour (TrailSettings).
+    let recentTrailMinutes: Int
 
     struct ZoomStep: Equatable {
         let id: Int
@@ -54,6 +56,7 @@ struct MapView: UIViewRepresentable {
         context.coordinator.applySelection(to: mapView)
         context.coordinator.updateTrail(on: mapView)
         context.coordinator.updateHunters(on: mapView)
+        context.coordinator.applyRecentWindow(on: mapView)
         if let step = zoomStep, step.id != context.coordinator.zoomedStep {
             context.coordinator.zoomedStep = step.id
             mapView.setZoomLevel(mapView.zoomLevel + step.delta, animated: true)
@@ -81,6 +84,7 @@ struct MapView: UIViewRepresentable {
             addHunterTrailLayers(to: style)
             addHunterLayers(to: style)
             styleLoaded = true
+            applyRecentWindow(on: mapView)
             updateTrail(on: mapView, force: true)
             // Segments age even when standing still, so the fade is recomputed every few seconds.
             trailTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self, weak mapView] _ in
@@ -242,39 +246,70 @@ struct MapView: UIViewRepresentable {
             return pieces
         }
 
-        /// Fades a trail out over TrackRecorder.window, by the pieces' "age" attribute.
-        private static var trailFade: NSExpression {
-            let minutes = TrackRecorder.window / 60
-            return NSExpression(
-                format: "mgl_interpolate:withCurveType:parameters:stops:(age, 'linear', nil, %@)",
-                [0: 1, minutes * 0.5: 0.6, minutes: 0.05] as NSDictionary
-            )
+        /// Trails have two parts: the last `recentTrailMinutes` in colour, older (up to
+        /// TrackRecorder.window) as a thin grey dashed line that fades out. A hunter who has
+        /// stopped shows little or no colour at the end of a grey path.
+        static let oldTrailColor = UIColor(white: 0.38, alpha: 1)
+        static let trailLayerIDs = ["trail", "hunter-trails"]
+        private var appliedRecentMinutes: Int?
+
+        /// Splits every trail into its coloured and grey part at `recentTrailMinutes`.
+        func applyRecentWindow(on mapView: MLNMapView) {
+            guard styleLoaded, let style = mapView.style,
+                  parent.recentTrailMinutes != appliedRecentMinutes else { return }
+            appliedRecentMinutes = parent.recentTrailMinutes
+            let recentMinutes = Double(parent.recentTrailMinutes)
+            let windowMinutes = TrackRecorder.window / 60
+            let recent = NSPredicate(format: "age <= %f", recentMinutes)
+            let old = NSPredicate(format: "age > %f", recentMinutes)
+            for id in Self.trailLayerIDs {
+                if let layer = style.layer(withIdentifier: "\(id)-old") as? MLNLineStyleLayer {
+                    layer.predicate = old
+                    layer.lineOpacity = NSExpression(
+                        format: "mgl_interpolate:withCurveType:parameters:stops:(age, 'linear', nil, %@)",
+                        [recentMinutes: 0.8, windowMinutes: 0.15] as NSDictionary)
+                }
+                for part in ["casing", "line"] {
+                    (style.layer(withIdentifier: "\(id)-\(part)") as? MLNLineStyleLayer)?.predicate = recent
+                }
+            }
+        }
+
+        /// Adds the line layers for a trail source; `color` is the recent part's colour.
+        private func addTrailLayers(to style: MLNStyle, source: MLNShapeSource, id: String,
+                                    color: NSExpression, width: Double) {
+            // Predicates and the grey part's fade are set by applyRecentWindow.
+            let below = style.layer(withIdentifier: "area-labels")
+
+            let oldLine = MLNLineStyleLayer(identifier: "\(id)-old", source: source)
+            oldLine.lineColor = NSExpression(forConstantValue: Self.oldTrailColor)
+            oldLine.lineWidth = Self.zoomRamp([10: 1.2, 16: 2.5])
+            oldLine.lineDashPattern = NSExpression(forConstantValue: [2, 1.5])
+            oldLine.lineJoin = NSExpression(forConstantValue: "round")
+
+            let casing = MLNLineStyleLayer(identifier: "\(id)-casing", source: source)
+            casing.lineColor = NSExpression(forConstantValue: UIColor.white)
+            casing.lineOpacity = NSExpression(forConstantValue: 0.85)
+            casing.lineWidth = Self.zoomRamp([10: width * 2, 16: width * 3.6])
+            casing.lineCap = NSExpression(forConstantValue: "butt")
+            casing.lineJoin = NSExpression(forConstantValue: "round")
+
+            let line = MLNLineStyleLayer(identifier: "\(id)-line", source: source)
+            line.lineColor = color
+            line.lineWidth = Self.zoomRamp([10: width, 16: width * 2.2])
+            line.lineCap = NSExpression(forConstantValue: "butt")
+            line.lineJoin = NSExpression(forConstantValue: "round")
+
+            for layer in [oldLine, casing, line] {
+                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
+            }
         }
 
         private func addTrailLayers(to style: MLNStyle) {
             let source = MLNShapeSource(identifier: "trail", shape: nil, options: nil)
             style.addSource(source)
-            // Newest segments opaque, fading out towards the end of the window.
-            let fade = Self.trailFade
-            let below = style.layer(withIdentifier: "area-labels")
-
-            let casing = MLNLineStyleLayer(identifier: "trail-casing", source: source)
-            casing.lineColor = NSExpression(forConstantValue: UIColor.white)
-            casing.lineOpacity = fade
-            casing.lineWidth = Self.zoomRamp([10: 4, 16: 8])
-            casing.lineCap = NSExpression(forConstantValue: "butt")
-            casing.lineJoin = NSExpression(forConstantValue: "round")
-
-            let line = MLNLineStyleLayer(identifier: "trail-line", source: source)
-            line.lineColor = NSExpression(forConstantValue: MapView.trailColor)
-            line.lineOpacity = fade
-            line.lineWidth = Self.zoomRamp([10: 2, 16: 4.5])
-            line.lineCap = NSExpression(forConstantValue: "butt")
-            line.lineJoin = NSExpression(forConstantValue: "round")
-
-            for layer in [casing, line] {
-                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
-            }
+            addTrailLayers(to: style, source: source, id: "trail",
+                           color: NSExpression(forConstantValue: MapView.trailColor), width: 2)
         }
 
         /// Redraws other hunters when they changed (or always with `force`, to refresh ages).
@@ -291,7 +326,8 @@ struct MapView: UIViewRepresentable {
                 point.coordinate = h.coordinate
                 let stale = h.isStale(now: now)
                 let minutes = Int(now.timeIntervalSince(h.updatedAt) / 60)
-                let age = minutes < 1 ? "nyt" : "\(minutes) min"
+                var age = minutes < 1 ? "nyt" : "\(minutes) min"
+                if let still = h.stillMinutes(now: now) { age = "paikallaan \(still) min" }
                 var attributes: [String: Any] = [
                     "initials": HunterStyle.initials(h.name),
                     "label": "\(h.name) · \(age)",
@@ -314,27 +350,12 @@ struct MapView: UIViewRepresentable {
             trailSource.shape = MLNShapeCollectionFeature(shapes: pieces)
         }
 
-        /// Other hunters' trails: thinner than the user's own, in each hunter's colour.
+        /// Other hunters' trails: thinner than the user's own, recent part in their colour.
         private func addHunterTrailLayers(to style: MLNStyle) {
             let source = MLNShapeSource(identifier: "hunter-trails", shape: nil, options: nil)
             style.addSource(source)
-            let below = style.layer(withIdentifier: "area-labels")
-
-            let casing = MLNLineStyleLayer(identifier: "hunter-trails-casing", source: source)
-            casing.lineColor = NSExpression(forConstantValue: UIColor.white)
-            casing.lineOpacity = Self.trailFade
-            casing.lineWidth = Self.zoomRamp([10: 3, 16: 6])
-            casing.lineJoin = NSExpression(forConstantValue: "round")
-
-            let line = MLNLineStyleLayer(identifier: "hunter-trails-line", source: source)
-            line.lineColor = NSExpression(format: "CAST(color, 'UIColor')")
-            line.lineOpacity = Self.trailFade
-            line.lineWidth = Self.zoomRamp([10: 1.5, 16: 3])
-            line.lineJoin = NSExpression(forConstantValue: "round")
-
-            for layer in [casing, line] {
-                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
-            }
+            addTrailLayers(to: style, source: source, id: "hunter-trails",
+                           color: NSExpression(format: "CAST(color, 'UIColor')"), width: 1.5)
         }
 
         private func addHunterLayers(to style: MLNStyle) {

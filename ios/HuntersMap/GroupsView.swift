@@ -20,6 +20,7 @@ struct GroupsView: View {
                 } else {
                     SignInSection()
                 }
+                MapSettingsSection()
             }
             .navigationTitle("Seurueet")
             .navigationBarTitleDisplayMode(.inline)
@@ -191,7 +192,7 @@ struct GroupDetailView: View {
                 MemberRow(
                     member: member,
                     isMe: member.userId == auth.user?.uid,
-                    position: sharing.positionsByGroup[groupID]?[member.userId])
+                    position: sharing.hunters.first { $0.id == member.userId })
             }
         }
     }
@@ -269,7 +270,9 @@ private struct MemberRow: View {
     @ViewBuilder
     private var status: some View {
         if let until = member.sharingUntil, until > .now {
-            if let position {
+            if let position, let still = position.stillMinutes() {
+                Text("Jakaa · paikallaan \(still) min")
+            } else if let position {
                 Text("Jakaa · päivitetty ") + Text(position.updatedAt, style: .relative) + Text(" sitten")
             } else {
                 Text("Jakaa sijaintia")

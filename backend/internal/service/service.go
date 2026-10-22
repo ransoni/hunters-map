@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"slices"
 	"strings"
@@ -34,6 +35,12 @@ const (
 	// LocationTTL keeps the last position visible ("last seen") a while after sharing ends;
 	// Firestore TTL deletes it afterwards.
 	LocationTTL = time.Hour
+	// TrackWindow is how much of a shared track is kept for trails.
+	TrackWindow = time.Hour
+	// A new track point is stored only after this much movement or time, to keep tracks small.
+	trackMinDistance = 5.0 // metres
+	trackMinInterval = time.Minute
+	maxTrackPoints   = 600
 
 	inviteAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no 0/O, 1/I
 	inviteLength   = 8
@@ -317,6 +324,9 @@ func (s *Service) RemoveMember(ctx context.Context, actor, gid, target string) e
 		if err := tx.DeleteLocation(gid, target); err != nil {
 			return err
 		}
+		if err := tx.DeleteTrack(gid, target); err != nil {
+			return err
+		}
 		if targetUser != nil {
 			targetUser.GroupIDs = slices.DeleteFunc(targetUser.GroupIDs, func(id string) bool { return id == gid })
 			targetUser.UpdatedAt = s.now()
@@ -446,7 +456,7 @@ func (s *Service) JoinByInvite(ctx context.Context, id Identity, code string) (*
 // ---------------------------------------------------------------------------- sharing
 
 // SetSharing starts sharing in a group until the given time (capped to MaxSharing), or
-// stops it when until is nil or not in the future. Stopping removes the shared position.
+// stops it when until is nil or not in the future. Stopping removes the shared position and track.
 // Returns the effective end time, nil when stopped.
 func (s *Service) SetSharing(ctx context.Context, uid, gid string, until *time.Time) (*time.Time, error) {
 	now := s.now()
@@ -472,7 +482,10 @@ func (s *Service) SetSharing(ctx context.Context, uid, gid string, until *time.T
 			return err
 		}
 		if effective == nil {
-			return tx.DeleteLocation(gid, uid)
+			if err := tx.DeleteLocation(gid, uid); err != nil {
+				return err
+			}
+			return tx.DeleteTrack(gid, uid)
 		}
 		return nil
 	})
@@ -544,6 +557,16 @@ func (s *Service) UpdateLocation(ctx context.Context, uid string, upd LocationUp
 				gids = append(gids, gid)
 			}
 		}
+		tracks := make([]*store.Track, len(gids))
+		for i, gid := range gids {
+			tr, err := tx.GetTrack(gid, uid)
+			if errors.Is(err, store.ErrNotFound) {
+				tr = &store.Track{UserID: uid}
+			} else if err != nil {
+				return err
+			}
+			tracks[i] = tr
+		}
 		for i, m := range sharing {
 			loc := &store.Location{
 				UserID:       uid,
@@ -559,6 +582,13 @@ func (s *Service) UpdateLocation(ctx context.Context, uid string, upd LocationUp
 				ExpireAt:     m.SharingUntil.Add(LocationTTL),
 			}
 			if err := tx.SetLocation(gids[i], loc); err != nil {
+				return err
+			}
+			tr := tracks[i]
+			AppendTrackPoint(tr, store.TrackPoint{Lat: upd.Lat, Lon: upd.Lon, T: loc.RecordedAt}, now)
+			tr.UpdatedAt = now
+			tr.ExpireAt = loc.ExpireAt
+			if err := tx.SetTrack(gids[i], tr); err != nil {
 				return err
 			}
 		}
@@ -610,6 +640,10 @@ func deleteGroupTx(tx store.Tx, g *store.Group) error {
 	if err != nil {
 		return err
 	}
+	tracks, err := tx.ListTracks(g.ID)
+	if err != nil {
+		return err
+	}
 	var users []*store.User
 	for _, m := range members {
 		u, err := tx.GetUser(m.UserID)
@@ -637,7 +671,47 @@ func deleteGroupTx(tx store.Tx, g *store.Group) error {
 			return err
 		}
 	}
+	for _, t := range tracks {
+		if err := tx.DeleteTrack(g.ID, t.UserID); err != nil {
+			return err
+		}
+	}
 	return tx.DeleteGroup(g.ID)
+}
+
+// AppendTrackPoint adds p unless it's within trackMinDistance and trackMinInterval of the
+// previous point, and drops points older than TrackWindow (and beyond maxTrackPoints).
+func AppendTrackPoint(tr *store.Track, p store.TrackPoint, now time.Time) {
+	cutoff := now.Add(-TrackWindow)
+	kept := tr.Points[:0]
+	for _, q := range tr.Points {
+		if q.T.After(cutoff) {
+			kept = append(kept, q)
+		}
+	}
+	tr.Points = kept
+	if n := len(tr.Points); n > 0 {
+		last := tr.Points[n-1]
+		if p.T.Before(last.T) {
+			return // out of order (a delayed upload); the track only grows forwards
+		}
+		if distance(last, p) < trackMinDistance && p.T.Sub(last.T) < trackMinInterval {
+			return
+		}
+	}
+	tr.Points = append(tr.Points, p)
+	if extra := len(tr.Points) - maxTrackPoints; extra > 0 {
+		tr.Points = tr.Points[extra:]
+	}
+}
+
+// distance in metres (equirectangular; plenty accurate at track-point scale).
+func distance(a, b store.TrackPoint) float64 {
+	const r = 6371008.8
+	lat := (a.Lat + b.Lat) / 2 * math.Pi / 180
+	dx := (b.Lon - a.Lon) * math.Pi / 180 * math.Cos(lat)
+	dy := (b.Lat - a.Lat) * math.Pi / 180
+	return r * math.Hypot(dx, dy)
 }
 
 func cleanName(s string) (string, error) {

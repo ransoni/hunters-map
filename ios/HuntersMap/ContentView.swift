@@ -9,6 +9,7 @@ struct ContentView: View {
     @EnvironmentObject private var sharing: SharingModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingGroups = false
+    @AppStorage(TrailSettings.recentMinutesKey) private var recentTrailMinutes = TrailSettings.defaultRecentMinutes
     @State private var trackingMode: MLNUserTrackingMode = .none
     @State private var fitRequest = 0
     @State private var zoomStep: MapView.ZoomStep?
@@ -18,7 +19,8 @@ struct ContentView: View {
 
     var body: some View {
         MapView(areas: store.areas, selected: store.selected, trackingMode: $trackingMode,
-                fitRequest: fitRequest, zoomStep: zoomStep, track: recorder.points, hunters: sharing.hunters, hunterTrails: sharing.trails)
+                fitRequest: fitRequest, zoomStep: zoomStep, track: recorder.points, hunters: sharing.hunters, hunterTrails: sharing.trails,
+                recentTrailMinutes: recentTrailMinutes)
             .ignoresSafeArea()
             .overlay(alignment: .top) { areaBar.padding(.horizontal) }
             .overlay(alignment: .bottomTrailing) {
