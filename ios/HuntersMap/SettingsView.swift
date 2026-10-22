@@ -201,7 +201,7 @@ struct GroupDetailView: View {
                 LabeledContent("Jaetaan", value: "klo \(until.formatted(date: .omitted, time: .shortened)) asti")
                 if let last = sharing.lastUpload {
                     LabeledContent("Viimeksi lähetetty") {
-                        Text(last, style: .relative) + Text(" sitten")
+                        UpdateAge(date: last, showTime: true)
                     }
                 }
             } else {
@@ -305,7 +305,7 @@ private struct MemberRow: View {
             if let position, let still = position.stillMinutes() {
                 Text("Jakaa · paikallaan \(still) min")
             } else if let position {
-                Text("Jakaa · päivitetty ") + Text(position.updatedAt, style: .relative) + Text(" sitten")
+                UpdateAge(date: position.updatedAt, prefix: "Jakaa · päivitetty ")
             } else {
                 Text("Jakaa sijaintia")
             }
@@ -328,5 +328,32 @@ struct ErrorAlert: ViewModifier {
         } message: {
             Text(message ?? "")
         }
+    }
+}
+
+/// "klo 20.29 · 3 min sitten": minute precision is plenty for people walking in the forest,
+/// so the text changes at most once a minute (re-rendered on minute marks counted from
+/// `date`), instead of a ticking seconds counter.
+struct UpdateAge: View {
+    let date: Date
+    var prefix = ""
+    var showTime = false
+
+    private static let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH.mm"
+        return f
+    }()
+
+    var body: some View {
+        TimelineView(.periodic(from: date, by: 60)) { context in
+            Text(prefix + text(now: context.date))
+        }
+    }
+
+    private func text(now: Date) -> String {
+        let minutes = Int(max(0, now.timeIntervalSince(date)) / 60)
+        let age = minutes < 1 ? "alle minuutti sitten" : "\(minutes) min sitten"
+        return showTime ? "klo \(Self.clock.string(from: date)) · \(age)" : age
     }
 }
