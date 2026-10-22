@@ -14,3 +14,10 @@ web/data/
 xcuserdata/
 *.xcuserstate
 ios/build/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+crash.log

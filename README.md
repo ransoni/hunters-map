@@ -175,6 +175,13 @@ Valitse Xcodessa simulaattori ja paina ⌘R. Omalle iPhonelle:
 Ilmaisella tilillä asennus vanhenee 7 päivässä; TestFlight vaatii Apple Developer
 Programin.
 
+## Backend (jakaminen ja kirjautuminen)
+
+`backend/` on Go-kielinen API (Cloud Run), joka hoitaa käyttäjäprofiilit, seurueet,
+kutsukoodit ja sijainnin jakamisen. Tiedot ovat Firestoressa (tietokanta `hunters-map`),
+ja kirjautuminen tehdään Firebase Authenticationilla (Google, myöhemmin Apple).
+Infra on Terraformina `infra/`-kansiossa; käyttöönotto-ohjeet: [infra/README.md](infra/README.md).
+
 ## Testit
 
 ```sh
