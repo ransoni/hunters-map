@@ -2,10 +2,28 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Track recording continues with the screen locked (TrackRecorder). Other keys come from INFOPLIST_KEY_* build settings. -->
+	<!-- Merged into the generated Info.plist; other keys come from INFOPLIST_KEY_* build settings. -->
+
+	<!-- Track recording continues with the screen locked (TrackRecorder). -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
 	</array>
+
+	<!-- Google sign-in returns to the app through this URL scheme: REVERSED_CLIENT_ID from
+	     GoogleService-Info.plist (make ios-config). Update both together. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.972743076858-uc2r5gn61jsgd5hb7o875v0r0epe3v0i</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- hunters-map backend (Cloud Run): terraform output api_url in infra/terraform. -->
+	<key>HuntersMapAPIBaseURL</key>
+	<string>https://hunters-map-api-nlpcgelvnq-lz.a.run.app</string>
 </dict>
 </plist>

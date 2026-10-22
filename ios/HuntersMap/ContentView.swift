@@ -5,6 +5,8 @@ import MapLibre
 struct ContentView: View {
     @EnvironmentObject private var store: AreaStore
     @EnvironmentObject private var recorder: TrackRecorder
+    @EnvironmentObject private var auth: AuthModel
+    @State private var showingAccount = false
     @State private var trackingMode: MLNUserTrackingMode = .none
     @State private var fitRequest = 0
     @State private var zoomStep: MapView.ZoomStep?
@@ -29,6 +31,7 @@ struct ContentView: View {
                 if denied { showingLocationDenied = true }
             }
             .sheet(isPresented: $showingPicker) { AreaPickerView() }
+            .sheet(isPresented: $showingAccount) { AccountView() }
             .alert("Sijainti ei ole käytössä", isPresented: $showingLocationDenied) {
                 Button("Asetukset") {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -61,6 +64,14 @@ struct ContentView: View {
                 .padding(.leading, 14)
                 .contentShape(Rectangle())
             }
+            Button {
+                showingAccount = true
+            } label: {
+                Image(systemName: auth.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
+                    .font(.title3.weight(.semibold))
+                    .frame(width: 44, height: 50)
+            }
+            .accessibilityLabel("Tili")
             Button {
                 showingPicker = true
             } label: {

@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		AA0000000000000000000011 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000041 /* MapLibre */; };
+		AA0000000000000000000070 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000060 /* FirebaseAuth */; };
+		AA0000000000000000000071 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000061 /* GoogleSignIn */; };
+		AA0000000000000000000072 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000062 /* GoogleSignInSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +31,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000011 /* MapLibre in Frameworks */,
+				AA0000000000000000000070 /* FirebaseAuth in Frameworks */,
+				AA0000000000000000000071 /* GoogleSignIn in Frameworks */,
+				AA0000000000000000000072 /* GoogleSignInSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +78,9 @@
 			name = HuntersMap;
 			packageProductDependencies = (
 				AA0000000000000000000041 /* MapLibre */,
+				AA0000000000000000000060 /* FirebaseAuth */,
+				AA0000000000000000000061 /* GoogleSignIn */,
+				AA0000000000000000000062 /* GoogleSignInSwift */,
 			);
 			productName = HuntersMap;
 			productReference = AA0000000000000000000001 /* HuntersMap.app */;
@@ -103,6 +112,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA0000000000000000000040 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
+				AA0000000000000000000050 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				AA0000000000000000000051 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA0000000000000000000004 /* Products */;
@@ -299,6 +310,22 @@
 				minimumVersion = 6.31.0;
 			};
 		};
+		AA0000000000000000000050 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
+		AA0000000000000000000051 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 10.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -306,6 +333,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA0000000000000000000040 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;
 			productName = MapLibre;
+		};
+		AA0000000000000000000060 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000050 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		AA0000000000000000000061 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000051 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		AA0000000000000000000062 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000051 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
