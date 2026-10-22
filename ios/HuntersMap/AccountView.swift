@@ -26,7 +26,7 @@ struct SignInSection: View {
     }
 }
 
-/// Profile: display name, sign out, delete account. Pushed from GroupsView.
+/// Profile: display name, sign out, delete account. Pushed from SettingsView.
 struct AccountView: View {
     @EnvironmentObject private var auth: AuthModel
     @State private var name = ""

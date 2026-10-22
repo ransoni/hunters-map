@@ -1,42 +1,38 @@
 import SwiftUI
 
 // Searchable list of kanalintu areas. Picking one makes it the active hunting area.
+// Pushed from the settings screen; `onDone` closes settings so the map shows the choice.
 struct AreaPickerView: View {
     @EnvironmentObject private var store: AreaStore
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    let onDone: () -> Void
 
     var body: some View {
-        NavigationStack {
-            List(store.search(query)) { area in
-                Button {
-                    store.selectedCode = area.code
-                    dismiss()
-                } label: {
-                    AreaRow(area: area, isSelected: area.code == store.selectedCode)
-                }
-                .foregroundStyle(.primary)
+        List(store.search(query)) { area in
+            Button {
+                store.selectedCode = area.code
+                onDone()
+            } label: {
+                AreaRow(area: area, isSelected: area.code == store.selectedCode)
             }
-            .listStyle(.plain)
-            .overlay {
-                if store.search(query).isEmpty {
-                    ContentUnavailableView.search(text: query)
-                }
+            .foregroundStyle(.primary)
+        }
+        .listStyle(.plain)
+        .overlay {
+            if store.search(query).isEmpty {
+                ContentUnavailableView.search(text: query)
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Nimi, numero, kunta tai maakunta")
-            .navigationTitle("Kanalintualueet")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Sulje") { dismiss() }
-                }
-                if store.selectedCode != nil {
-                    ToolbarItem(placement: .destructiveAction) {
-                        Button("Poista valinta", role: .destructive) {
-                            store.selectedCode = nil
-                            dismiss()
-                        }
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Nimi, numero, kunta tai maakunta")
+        .navigationTitle("Kanalintualueet")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if store.selectedCode != nil {
+                ToolbarItem(placement: .destructiveAction) {
+                    Button("Poista valinta", role: .destructive) {
+                        store.selectedCode = nil
+                        onDone()
                     }
                 }
             }

@@ -137,7 +137,8 @@ final class TrackRecorder: NSObject, ObservableObject, CLLocationManagerDelegate
         guard let latest = accepted.last else { return }
         lastLocation = latest
         onLocation?(latest)
-        guard isRecording else { return }
+        // The own trail is kept while recording, and also while sharing (GPS runs anyway).
+        guard gpsNeeded else { return }
         let now = Date.now
         var updated = points.filter { now.timeIntervalSince($0.time) <= Self.window }
         for location in accepted {

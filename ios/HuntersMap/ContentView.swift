@@ -8,12 +8,13 @@ struct ContentView: View {
     @EnvironmentObject private var auth: AuthModel
     @EnvironmentObject private var sharing: SharingModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showingGroups = false
+    @State private var showingSettings = false
+    @State private var settingsStart: SettingsRoute?
+    @State private var togglingSharing = false
     @AppStorage(TrailSettings.recentMinutesKey) private var recentTrailMinutes = TrailSettings.defaultRecentMinutes
     @State private var trackingMode: MLNUserTrackingMode = .none
     @State private var fitRequest = 0
     @State private var zoomStep: MapView.ZoomStep?
-    @State private var showingPicker = false
     @State private var showingLocationDenied = false
     private let locationManager = CLLocationManager()
 
@@ -25,7 +26,6 @@ struct ContentView: View {
             .overlay(alignment: .top) { areaBar.padding(.horizontal) }
             .overlay(alignment: .bottomTrailing) {
                 VStack(spacing: 16) {
-                    recordButton
                     zoomButtons
                     locationButton
                 }
@@ -34,8 +34,7 @@ struct ContentView: View {
             .onChange(of: recorder.permissionDenied) { _, denied in
                 if denied { showingLocationDenied = true }
             }
-            .sheet(isPresented: $showingPicker) { AreaPickerView() }
-            .sheet(isPresented: $showingGroups) { GroupsView() }
+            .sheet(isPresented: $showingSettings) { SettingsView(start: settingsStart) }
             .onChange(of: auth.user?.uid, initial: true) { _, uid in sharing.userChanged(uid) }
             .onChange(of: scenePhase) { _, phase in
                 // Sharing may have ended (or been changed elsewhere) while in the background.
@@ -53,11 +52,11 @@ struct ContentView: View {
             }
     }
 
-    /// Active area: tap the name to fit the map to it, the list button to pick another.
+    /// Active area (tap: fit the map to it), the sharing switch and the settings gear.
     private var areaBar: some View {
         HStack(spacing: 0) {
             Button {
-                if store.selected == nil { showingPicker = true } else { fitRequest += 1 }
+                if store.selected == nil { openSettings(.areas) } else { fitRequest += 1 }
             } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     if let area = store.selected {
@@ -73,55 +72,50 @@ struct ContentView: View {
                 .padding(.leading, 14)
                 .contentShape(Rectangle())
             }
-            Button {
-                showingGroups = true
-            } label: {
-                // Green while sharing the location with a group.
-                Image(systemName: sharing.isSharing ? "person.2.wave.2.fill" : "person.2")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(sharing.isSharing ? Color.green : Color.primary)
-                    .frame(width: 44, height: 50)
+            if sharing.canToggleSharing {
+                sharingSwitch
             }
-            .accessibilityLabel(sharing.isSharing ? "Seurueet, jaat sijaintia" : "Seurueet")
             Button {
-                showingPicker = true
+                openSettings(nil)
             } label: {
-                Image(systemName: "list.bullet")
+                Image(systemName: "gearshape")
                     .font(.title3.weight(.semibold))
                     .frame(width: 50, height: 50)
             }
-            .accessibilityLabel("Valitse alue")
+            .accessibilityLabel("Asetukset")
         }
         .foregroundStyle(.primary)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
     }
 
-    /// Starts/stops recording the walked track (shown as a fading trail, also with the screen locked).
-    private var recordButton: some View {
+    /// Green with signal waves while sharing; tap stops sharing in all groups (red, no waves).
+    /// Tapping red resumes in the groups last shared with, or opens settings to pick a group.
+    private var sharingSwitch: some View {
         Button {
-            recorder.toggle()
+            togglingSharing = true
+            Task {
+                if sharing.isSharing {
+                    await sharing.stopAllSharing()
+                } else if await !sharing.resumeSharing() {
+                    openSettings(nil)
+                }
+                togglingSharing = false
+            }
         } label: {
-            Image(systemName: "figure.walk")
-                .font(.title2.weight(.medium))
-                .foregroundStyle(recorder.isRecording ? .white : .primary)
-                .frame(width: 54, height: 54)
-                .background {
-                    if recorder.isRecording {
-                        Circle().fill(Color(MapView.trailColor))
-                    } else {
-                        Circle().fill(.regularMaterial)
-                    }
-                }
-                .overlay(alignment: .topTrailing) {
-                    if recorder.isRecording {
-                        Circle().fill(.red).frame(width: 12, height: 12)
-                            .overlay(Circle().stroke(.white, lineWidth: 2))
-                    }
-                }
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+            Image(systemName: sharing.isSharing ? "person.2.wave.2.fill" : "person.2.fill")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(sharing.isSharing ? Color.green : Color.red)
+                .frame(width: 44, height: 50)
+                .opacity(togglingSharing ? 0.4 : 1)
         }
-        .accessibilityLabel(recorder.isRecording ? "Lopeta reitin tallennus" : "Tallenna reitti")
+        .disabled(togglingSharing)
+        .accessibilityLabel(sharing.isSharing ? "Jaat sijaintia, lopeta jakaminen" : "Et jaa sijaintia, jatka jakamista")
+    }
+
+    private func openSettings(_ start: SettingsRoute?) {
+        settingsStart = start
+        showingSettings = true
     }
 
     /// Big +/− buttons: easier than pinching with gloves or one hand.

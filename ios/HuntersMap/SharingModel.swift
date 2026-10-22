@@ -183,12 +183,75 @@ final class SharingModel: ObservableObject {
     /// Starts sharing in a group for `duration`, or stops with nil.
     func setSharing(groupID: String, duration: TimeInterval?) async {
         let until = duration.map { Date.now.addingTimeInterval($0) }
-        await run { _ = try await self.api.setSharing(groupID: groupID, until: until) }
-        await reload()
-        if until != nil, let location = recorder.lastLocation {
-            lastSent = nil // send right away, others shouldn't wait for the next fix
-            handle(location)
+        let ok = await run { _ = try await self.api.setSharing(groupID: groupID, until: until) }
+        if ok {
+            // Remember the choice for the top-bar switch's "resume".
+            var groups = Set(lastSharedGroupIDs)
+            if let duration {
+                groups.insert(groupID)
+                lastSharingDuration = duration
+            } else {
+                groups.remove(groupID)
+            }
+            lastSharedGroupIDs = Array(groups)
         }
+        await reload()
+        if until != nil { sendNow() }
+    }
+
+    // MARK: Top-bar switch
+
+    /// The switch shows whenever there's a group to share with.
+    var canToggleSharing: Bool { uid != nil && !groups.isEmpty }
+
+    /// Stops sharing in every group, remembering them for `resumeSharing`.
+    func stopAllSharing() async {
+        let ids = groups.map(\.id).filter { isSharing(in: $0) }
+        guard !ids.isEmpty else { return }
+        lastSharedGroupIDs = ids
+        await withTaskGroup(of: Void.self) { tasks in
+            for id in ids {
+                tasks.addTask { await self.run { _ = try await self.api.setSharing(groupID: id, until: nil) } }
+            }
+        }
+        await reload()
+    }
+
+    /// Resumes sharing in the groups last shared with, for the last chosen duration. Returns
+    /// false when there's nothing to resume (the caller then opens the settings).
+    func resumeSharing() async -> Bool {
+        let member = Set(groups.map(\.id))
+        let ids = lastSharedGroupIDs.filter(member.contains)
+        guard !ids.isEmpty else { return false }
+        let until = Date.now.addingTimeInterval(lastSharingDuration)
+        await withTaskGroup(of: Void.self) { tasks in
+            for id in ids {
+                tasks.addTask { await self.run { _ = try await self.api.setSharing(groupID: id, until: until) } }
+            }
+        }
+        await reload()
+        sendNow()
+        return true
+    }
+
+    private var lastSharedGroupIDs: [String] {
+        get { UserDefaults.standard.stringArray(forKey: "lastSharedGroupIDs") ?? [] }
+        set { UserDefaults.standard.set(newValue, forKey: "lastSharedGroupIDs") }
+    }
+
+    private var lastSharingDuration: TimeInterval {
+        get {
+            let saved = UserDefaults.standard.double(forKey: "lastSharingDuration")
+            return saved > 0 ? saved : 8 * 3600
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "lastSharingDuration") }
+    }
+
+    /// Sends the latest fix right away when sharing starts; others shouldn't wait for the next one.
+    private func sendNow() {
+        guard isSharing, let location = recorder.lastLocation else { return }
+        lastSent = nil
+        handle(location)
     }
 
     private func updateEngine() {

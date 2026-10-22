@@ -1,30 +1,51 @@
 import SwiftUI
 
-/// Hub for hunting groups (seurueet), opened from the top bar: sign in, list of groups,
-/// create / join, and the account page.
-struct GroupsView: View {
+/// Screens reachable from the settings screen.
+enum SettingsRoute: Hashable {
+    case group(String)
+    case areas
+}
+
+/// Settings, opened with the gear in the top bar: hunting groups (or sign-in), hunting area,
+/// map options and the account.
+struct SettingsView: View {
     @EnvironmentObject private var auth: AuthModel
     @EnvironmentObject private var sharing: SharingModel
+    @EnvironmentObject private var store: AreaStore
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [String] = []
+    @State private var path: [SettingsRoute]
     @State private var creating = false
     @State private var newName = ""
     @State private var joining = false
     @State private var joinCode = ""
 
+    /// `start` opens a page right away, e.g. the area picker when no area is chosen yet.
+    init(start: SettingsRoute? = nil) {
+        _path = State(initialValue: start.map { [$0] } ?? [])
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 if auth.isSignedIn {
-                    signedIn
+                    groupsSection
                 } else {
                     SignInSection()
                 }
+                areaSection
                 MapSettingsSection()
+                if auth.isSignedIn {
+                    accountSection
+                }
             }
-            .navigationTitle("Seurueet")
+            .navigationTitle("Asetukset")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: String.self) { GroupDetailView(groupID: $0) }
+            .navigationDestination(for: SettingsRoute.self) { route in
+                switch route {
+                case .group(let id): GroupDetailView(groupID: id)
+                case .areas: AreaPickerView { dismiss() }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Sulje") { dismiss() }
@@ -38,7 +59,7 @@ struct GroupsView: View {
                     let name = newName
                     newName = ""
                     Task {
-                        if let group = await sharing.createGroup(name: name) { path.append(group.id) }
+                        if let group = await sharing.createGroup(name: name) { path.append(.group(group.id)) }
                     }
                 }
                 Button("Peruuta", role: .cancel) { newName = "" }
@@ -51,7 +72,7 @@ struct GroupsView: View {
                     let code = joinCode
                     joinCode = ""
                     Task {
-                        if let group = await sharing.join(code: code) { path.append(group.id) }
+                        if let group = await sharing.join(code: code) { path.append(.group(group.id)) }
                     }
                 }
                 Button("Peruuta", role: .cancel) { joinCode = "" }
@@ -67,25 +88,36 @@ struct GroupsView: View {
     }
 
     @ViewBuilder
-    private var signedIn: some View {
+    private var groupsSection: some View {
         Section {
             if sharing.groups.isEmpty {
                 Text("Et ole vielä missään seurueessa. Perusta oma tai liity kutsukoodilla.")
                     .foregroundStyle(.secondary)
             }
             ForEach(sharing.groups) { group in
-                NavigationLink(value: group.id) { GroupRow(group: group) }
+                NavigationLink(value: SettingsRoute.group(group.id)) { GroupRow(group: group) }
             }
-        } header: {
-            Text("Omat seurueet")
-        }
-
-        Section {
             Button("Perusta seurue", systemImage: "plus.circle") { creating = true }
             Button("Liity kutsukoodilla", systemImage: "ticket") { joining = true }
+        } header: {
+            Text("Seurueet")
         }
+    }
 
-        Section {
+    private var areaSection: some View {
+        Section("Metsästysalue") {
+            NavigationLink(value: SettingsRoute.areas) {
+                LabeledContent {
+                    Text(store.selected?.name ?? "Ei valittu")
+                } label: {
+                    Label("Kanalintualue", systemImage: "map")
+                }
+            }
+        }
+    }
+
+    private var accountSection: some View {
+        Section("Tili") {
             NavigationLink {
                 AccountView()
             } label: {

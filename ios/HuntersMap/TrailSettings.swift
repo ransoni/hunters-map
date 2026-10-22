@@ -8,12 +8,16 @@ enum TrailSettings {
     static let options = [5, 10, 15, 30]
 }
 
-/// "Kartta" section of the hub: trail settings.
+/// "Kartta" section of the settings: own route recording and trail length.
 struct MapSettingsSection: View {
+    @EnvironmentObject private var recorder: TrackRecorder
     @AppStorage(TrailSettings.recentMinutesKey) private var recentMinutes = TrailSettings.defaultRecentMinutes
 
     var body: some View {
         Section {
+            Toggle(isOn: Binding(get: { recorder.isRecording }, set: { _ in recorder.toggle() })) {
+                Label("Tallenna oma reitti", systemImage: "figure.walk")
+            }
             Picker("Värillinen jälki", selection: $recentMinutes) {
                 ForEach(TrailSettings.options, id: \.self) { minutes in
                     Text("\(minutes) min").tag(minutes)
@@ -22,7 +26,7 @@ struct MapSettingsSection: View {
         } header: {
             Text("Kartta")
         } footer: {
-            Text("Näin pitkä osa kuljetusta reitistä näytetään värillisenä. Vanhempi osa näkyy harmaana katkoviivana tunnin ajan, joten pysähtyminen erottuu kartalla.")
+            Text("Oma reitti tallentuu myös näytön ollessa lukittuna, ja aina kun jaat sijaintiasi. Värillisen jäljen pituus koskee omaa ja muiden reittejä; vanhempi osa näkyy harmaana katkoviivana tunnin ajan, joten pysähtyminen erottuu kartalla.")
         }
     }
 }
