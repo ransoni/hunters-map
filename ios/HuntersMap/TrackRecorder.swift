@@ -5,6 +5,9 @@ import CoreLocation
 // location mode; iOS shows the blue location indicator). Only the last `window` is kept:
 // the map draws it as a trail that fades with age. The track is saved to disk, so it
 // survives the app being closed, and recording resumes on the next launch.
+//
+// It is also the app's background GPS engine for location sharing: GPS runs while recording
+// or sharing is on, and every accurate fix goes to `onLocation` (SharingModel uploads it).
 
 struct TrackPoint: Codable, Equatable {
     let latitude: Double
@@ -26,7 +29,13 @@ final class TrackRecorder: NSObject, ObservableObject, CLLocationManagerDelegate
     @Published private(set) var isRecording = false
     @Published private(set) var permissionDenied = false
 
+    /// Called with every accurate fix while GPS runs (recording or sharing).
+    var onLocation: ((CLLocation) -> Void)?
+    /// Latest accurate fix, for sending a position as soon as sharing starts.
+    private(set) var lastLocation: CLLocation?
+
     private let manager = CLLocationManager()
+    private var sharingActive = false
     private var backgroundSession: CLBackgroundActivitySession?
     private static let recordingKey = "trackRecording"
     private static let fileURL = URL.applicationSupportDirectory.appending(path: "track.json")
@@ -59,17 +68,37 @@ final class TrackRecorder: NSObject, ObservableObject, CLLocationManagerDelegate
         }
         isRecording = true
         UserDefaults.standard.set(true, forKey: Self.recordingKey)
-        beginUpdates()
+        updateEngine()
     }
 
     func stop() {
         isRecording = false
         UserDefaults.standard.set(false, forKey: Self.recordingKey)
-        manager.stopUpdatingLocation()
-        manager.allowsBackgroundLocationUpdates = false
-        backgroundSession?.invalidate()
-        backgroundSession = nil
+        updateEngine()
         save()
+    }
+
+    /// Keeps GPS running for location sharing, also when the track isn't recorded.
+    func setSharingActive(_ active: Bool) {
+        guard active != sharingActive else { return }
+        sharingActive = active
+        if active && manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+        updateEngine()
+    }
+
+    private var gpsNeeded: Bool { isRecording || sharingActive }
+
+    private func updateEngine() {
+        if gpsNeeded {
+            beginUpdates()
+        } else {
+            manager.stopUpdatingLocation()
+            manager.allowsBackgroundLocationUpdates = false
+            backgroundSession?.invalidate()
+            backgroundSession = nil
+        }
     }
 
     /// Points within the window, oldest first.
@@ -95,7 +124,7 @@ final class TrackRecorder: NSObject, ObservableObject, CLLocationManagerDelegate
             permissionDenied = true
         case .authorizedWhenInUse, .authorizedAlways:
             permissionDenied = false
-            if isRecording { beginUpdates() }
+            if gpsNeeded { beginUpdates() }
         default:
             break
         }
@@ -105,7 +134,10 @@ final class TrackRecorder: NSObject, ObservableObject, CLLocationManagerDelegate
         let accepted = locations.filter {
             $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= Self.maxAccuracy
         }
-        guard !accepted.isEmpty else { return }
+        guard let latest = accepted.last else { return }
+        lastLocation = latest
+        onLocation?(latest)
+        guard isRecording else { return }
         let now = Date.now
         var updated = points.filter { now.timeIntervalSince($0.time) <= Self.window }
         for location in accepted {

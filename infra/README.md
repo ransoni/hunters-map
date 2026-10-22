@@ -116,6 +116,19 @@ curl -X POST localhost:8080/v1/groups -H 'Authorization: Bearer dev:alice:Alice'
 
 The server refuses `DEV_MODE` on Cloud Run.
 
+### Simulated hunter
+
+To see other hunters on the map without a second phone, `simhunter` joins a group as a fake
+member and walks it around, writing to the real Firestore database with your Application
+Default Credentials. Ctrl-C stops it and removes the member.
+
+```bash
+cd ../backend && go run ./cmd/simhunter -group <groupId> -speed 5
+```
+
+The group id is the document id under `groups/` in Firestore (or `id` from `GET /v1/groups`).
+Options: `-name`, `-lat`/`-lon` (centre of the walk), `-radius`, `-speed` (m/s), `-interval`.
+
 ## Costs (POC)
 
 Cloud Run scales to zero (max 3 instances), Firestore and Firebase Authentication stay

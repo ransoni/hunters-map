@@ -11,6 +11,7 @@
 		AA0000000000000000000070 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000060 /* FirebaseAuth */; };
 		AA0000000000000000000071 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000061 /* GoogleSignIn */; };
 		AA0000000000000000000072 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000062 /* GoogleSignInSwift */; };
+		AA0000000000000000000073 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000063 /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 				AA0000000000000000000070 /* FirebaseAuth in Frameworks */,
 				AA0000000000000000000071 /* GoogleSignIn in Frameworks */,
 				AA0000000000000000000072 /* GoogleSignInSwift in Frameworks */,
+				AA0000000000000000000073 /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,6 +83,7 @@
 				AA0000000000000000000060 /* FirebaseAuth */,
 				AA0000000000000000000061 /* GoogleSignIn */,
 				AA0000000000000000000062 /* GoogleSignInSwift */,
+				AA0000000000000000000063 /* FirebaseFirestore */,
 			);
 			productName = HuntersMap;
 			productReference = AA0000000000000000000001 /* HuntersMap.app */;
@@ -348,6 +351,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA0000000000000000000051 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		AA0000000000000000000063 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000050 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

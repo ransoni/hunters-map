@@ -1,47 +1,13 @@
 import SwiftUI
 import GoogleSignInSwift
 
-// Sign in / profile sheet. Signing in is only needed for sharing the location with a
-// hunting party; the map, areas and track work without an account.
-struct AccountView: View {
+/// Sign-in prompt, shown in the groups hub while signed out. Signing in is only needed for
+/// sharing; the map, areas and track work without an account.
+struct SignInSection: View {
     @EnvironmentObject private var auth: AuthModel
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @State private var name = ""
-    @State private var confirmingDelete = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if auth.isSignedIn {
-                    signedIn
-                } else {
-                    signedOut
-                }
-            }
-            .navigationTitle("Tili")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Sulje") { dismiss() }
-                }
-            }
-            .disabled(auth.isWorking)
-            .overlay {
-                if auth.isWorking { ProgressView().controlSize(.large) }
-            }
-            .alert("Virhe", isPresented: Binding(
-                get: { auth.errorMessage != nil },
-                set: { if !$0 { auth.errorMessage = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(auth.errorMessage ?? "")
-            }
-        }
-    }
-
-    private var signedOut: some View {
         Section {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Jaa sijaintisi seurueen kanssa", systemImage: "person.2.wave.2")
@@ -57,6 +23,26 @@ struct AccountView: View {
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
+    }
+}
+
+/// Profile: display name, sign out, delete account. Pushed from GroupsView.
+struct AccountView: View {
+    @EnvironmentObject private var auth: AuthModel
+    @State private var name = ""
+    @State private var confirmingDelete = false
+
+    var body: some View {
+        Form {
+            if auth.isSignedIn {
+                signedIn
+            } else {
+                SignInSection()
+            }
+        }
+        .navigationTitle("Tili")
+        .navigationBarTitleDisplayMode(.inline)
+        .disabled(auth.isWorking)
     }
 
     @ViewBuilder

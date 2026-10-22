@@ -6,7 +6,9 @@ struct ContentView: View {
     @EnvironmentObject private var store: AreaStore
     @EnvironmentObject private var recorder: TrackRecorder
     @EnvironmentObject private var auth: AuthModel
-    @State private var showingAccount = false
+    @EnvironmentObject private var sharing: SharingModel
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showingGroups = false
     @State private var trackingMode: MLNUserTrackingMode = .none
     @State private var fitRequest = 0
     @State private var zoomStep: MapView.ZoomStep?
@@ -16,7 +18,7 @@ struct ContentView: View {
 
     var body: some View {
         MapView(areas: store.areas, selected: store.selected, trackingMode: $trackingMode,
-                fitRequest: fitRequest, zoomStep: zoomStep, track: recorder.points)
+                fitRequest: fitRequest, zoomStep: zoomStep, track: recorder.points, hunters: sharing.hunters, hunterTrails: sharing.trails)
             .ignoresSafeArea()
             .overlay(alignment: .top) { areaBar.padding(.horizontal) }
             .overlay(alignment: .bottomTrailing) {
@@ -31,7 +33,12 @@ struct ContentView: View {
                 if denied { showingLocationDenied = true }
             }
             .sheet(isPresented: $showingPicker) { AreaPickerView() }
-            .sheet(isPresented: $showingAccount) { AccountView() }
+            .sheet(isPresented: $showingGroups) { GroupsView() }
+            .onChange(of: auth.user?.uid, initial: true) { _, uid in sharing.userChanged(uid) }
+            .onChange(of: scenePhase) { _, phase in
+                // Sharing may have ended (or been changed elsewhere) while in the background.
+                if phase == .active { Task { await sharing.reload() } }
+            }
             .alert("Sijainti ei ole käytössä", isPresented: $showingLocationDenied) {
                 Button("Asetukset") {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -65,13 +72,15 @@ struct ContentView: View {
                 .contentShape(Rectangle())
             }
             Button {
-                showingAccount = true
+                showingGroups = true
             } label: {
-                Image(systemName: auth.isSignedIn ? "person.crop.circle.fill" : "person.crop.circle")
+                // Green while sharing the location with a group.
+                Image(systemName: sharing.isSharing ? "person.2.wave.2.fill" : "person.2")
                     .font(.title3.weight(.semibold))
+                    .foregroundStyle(sharing.isSharing ? Color.green : Color.primary)
                     .frame(width: 44, height: 50)
             }
-            .accessibilityLabel("Tili")
+            .accessibilityLabel(sharing.isSharing ? "Seurueet, jaat sijaintia" : "Seurueet")
             Button {
                 showingPicker = true
             } label: {

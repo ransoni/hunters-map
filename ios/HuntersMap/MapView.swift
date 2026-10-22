@@ -13,6 +13,10 @@ struct MapView: UIViewRepresentable {
     let zoomStep: ZoomStep?
     /// Recently walked track, oldest first, drawn as a trail that fades over TrackRecorder.window.
     let track: [TrackPoint]
+    /// Other hunters sharing their location in the user's groups.
+    let hunters: [HunterPosition]
+    /// Their recent positions (seen while the app is open), drawn as fading trails.
+    let hunterTrails: [String: [TrackPoint]]
 
     struct ZoomStep: Equatable {
         let id: Int
@@ -49,6 +53,7 @@ struct MapView: UIViewRepresentable {
         }
         context.coordinator.applySelection(to: mapView)
         context.coordinator.updateTrail(on: mapView)
+        context.coordinator.updateHunters(on: mapView)
         if let step = zoomStep, step.id != context.coordinator.zoomedStep {
             context.coordinator.zoomedStep = step.id
             mapView.setZoomLevel(mapView.zoomLevel + step.delta, animated: true)
@@ -63,6 +68,8 @@ struct MapView: UIViewRepresentable {
         private var fittedRequest = 0
         private var drawnTrack: [TrackPoint] = []
         private var trailTimer: Timer?
+        private var drawnHunters: [HunterPosition] = []
+        private var drawnHunterTrails: [String: [TrackPoint]] = [:]
 
         init(_ parent: MapView) { self.parent = parent }
 
@@ -71,12 +78,15 @@ struct MapView: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             addAreaLayers(to: style)
             addTrailLayers(to: style)
+            addHunterTrailLayers(to: style)
+            addHunterLayers(to: style)
             styleLoaded = true
             updateTrail(on: mapView, force: true)
             // Segments age even when standing still, so the fade is recomputed every few seconds.
             trailTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self, weak mapView] _ in
                 guard let self, let mapView else { return }
                 self.updateTrail(on: mapView, force: true)
+                self.updateHunters(on: mapView, force: true) // "x min" labels and stale colours
             }
             // The view has its real size only now; fitting in makeUIView left the map at world zoom.
             if parent.selected == nil {
@@ -194,18 +204,21 @@ struct MapView: UIViewRepresentable {
             let track = parent.track
             guard force || track != drawnTrack else { return }
             drawnTrack = track
+            source.shape = MLNShapeCollectionFeature(shapes: Self.trailPieces(track, now: .now))
+        }
 
-            // One polyline per 20 s age bucket, tagged with its age in minutes for the fading style.
-            // (Per-point segments would overlap at every join and stack up their opacity.)
+        /// A track as polylines, one per 20 s age bucket, each tagged with its age in minutes
+        /// for the fading style. (Per-point segments would overlap at every join and stack up
+        /// their opacity.) `attributes` are added to every piece.
+        private static func trailPieces(_ track: [TrackPoint], now: Date, attributes: [String: Any] = [:]) -> [MLNPolylineFeature] {
             let bucket: TimeInterval = 20
-            let now = Date.now
             var pieces: [MLNPolylineFeature] = []
             var run: [CLLocationCoordinate2D] = []
             var runBucket = -1
             func flush() {
                 if run.count >= 2 {
                     let piece = MLNPolylineFeature(coordinates: &run, count: UInt(run.count))
-                    piece.attributes = ["age": (Double(runBucket) + 0.5) * bucket / 60]
+                    piece.attributes = attributes.merging(["age": (Double(runBucket) + 0.5) * bucket / 60]) { $1 }
                     pieces.append(piece)
                 }
                 run = []
@@ -226,18 +239,23 @@ struct MapView: UIViewRepresentable {
                 run.append(b.coordinate)
             }
             flush()
-            source.shape = MLNShapeCollectionFeature(shapes: pieces)
+            return pieces
+        }
+
+        /// Fades a trail out over TrackRecorder.window, by the pieces' "age" attribute.
+        private static var trailFade: NSExpression {
+            let minutes = TrackRecorder.window / 60
+            return NSExpression(
+                format: "mgl_interpolate:withCurveType:parameters:stops:(age, 'linear', nil, %@)",
+                [0: 1, minutes * 0.5: 0.6, minutes: 0.05] as NSDictionary
+            )
         }
 
         private func addTrailLayers(to style: MLNStyle) {
             let source = MLNShapeSource(identifier: "trail", shape: nil, options: nil)
             style.addSource(source)
-            let minutes = TrackRecorder.window / 60
             // Newest segments opaque, fading out towards the end of the window.
-            let fade = NSExpression(
-                format: "mgl_interpolate:withCurveType:parameters:stops:(age, 'linear', nil, %@)",
-                [0: 1, minutes * 0.5: 0.6, minutes: 0.05] as NSDictionary
-            )
+            let fade = Self.trailFade
             let below = style.layer(withIdentifier: "area-labels")
 
             let casing = MLNLineStyleLayer(identifier: "trail-casing", source: source)
@@ -257,6 +275,97 @@ struct MapView: UIViewRepresentable {
             for layer in [casing, line] {
                 if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
             }
+        }
+
+        /// Redraws other hunters when they changed (or always with `force`, to refresh ages).
+        func updateHunters(on mapView: MLNMapView, force: Bool = false) {
+            guard styleLoaded,
+                  let source = mapView.style?.source(withIdentifier: "hunters") as? MLNShapeSource else { return }
+            let hunters = parent.hunters
+            guard force || hunters != drawnHunters else { return }
+            drawnHunters = hunters
+
+            let now = Date.now
+            let points: [MLNPointFeature] = hunters.map { h in
+                let point = MLNPointFeature()
+                point.coordinate = h.coordinate
+                let stale = h.isStale(now: now)
+                let minutes = Int(now.timeIntervalSince(h.updatedAt) / 60)
+                let age = minutes < 1 ? "nyt" : "\(minutes) min"
+                point.attributes = [
+                    "initials": HunterStyle.initials(h.name),
+                    "label": "\(h.name) · \(age)",
+                    "color": HunterStyle.hex(stale ? HunterStyle.stale : HunterStyle.color(for: h.id)),
+                ]
+                return point
+            }
+            source.shape = MLNShapeCollectionFeature(shapes: points)
+
+            let trails = parent.hunterTrails
+            guard let trailSource = mapView.style?.source(withIdentifier: "hunter-trails") as? MLNShapeSource,
+                  force || trails != drawnHunterTrails else { return }
+            drawnHunterTrails = trails
+            let pieces = trails.flatMap { id, track in
+                Self.trailPieces(track, now: now, attributes: ["color": HunterStyle.hex(HunterStyle.color(for: id))])
+            }
+            trailSource.shape = MLNShapeCollectionFeature(shapes: pieces)
+        }
+
+        /// Other hunters' trails: thinner than the user's own, in each hunter's colour.
+        private func addHunterTrailLayers(to style: MLNStyle) {
+            let source = MLNShapeSource(identifier: "hunter-trails", shape: nil, options: nil)
+            style.addSource(source)
+            let below = style.layer(withIdentifier: "area-labels")
+
+            let casing = MLNLineStyleLayer(identifier: "hunter-trails-casing", source: source)
+            casing.lineColor = NSExpression(forConstantValue: UIColor.white)
+            casing.lineOpacity = Self.trailFade
+            casing.lineWidth = Self.zoomRamp([10: 3, 16: 6])
+            casing.lineJoin = NSExpression(forConstantValue: "round")
+
+            let line = MLNLineStyleLayer(identifier: "hunter-trails-line", source: source)
+            line.lineColor = NSExpression(format: "CAST(color, 'UIColor')")
+            line.lineOpacity = Self.trailFade
+            line.lineWidth = Self.zoomRamp([10: 1.5, 16: 3])
+            line.lineJoin = NSExpression(forConstantValue: "round")
+
+            for layer in [casing, line] {
+                if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
+            }
+        }
+
+        private func addHunterLayers(to style: MLNStyle) {
+            let source = MLNShapeSource(identifier: "hunters", shape: nil, options: nil)
+            style.addSource(source)
+
+            let dot = MLNCircleStyleLayer(identifier: "hunters-dot", source: source)
+            dot.circleRadius = NSExpression(forConstantValue: 13)
+            dot.circleColor = NSExpression(format: "CAST(color, 'UIColor')")
+            dot.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+            dot.circleStrokeWidth = NSExpression(forConstantValue: 2.5)
+            style.addLayer(dot)
+
+            let initials = MLNSymbolStyleLayer(identifier: "hunters-initials", source: source)
+            initials.text = NSExpression(forKeyPath: "initials")
+            initials.textFontNames = NSExpression(forConstantValue: ["Open Sans Semibold"])
+            initials.textFontSize = NSExpression(forConstantValue: 11)
+            initials.textColor = NSExpression(forConstantValue: UIColor.white)
+            initials.textAllowsOverlap = NSExpression(forConstantValue: true)
+            initials.textIgnoresPlacement = NSExpression(forConstantValue: true)
+            style.addLayer(initials)
+
+            let name = MLNSymbolStyleLayer(identifier: "hunters-name", source: source)
+            name.text = NSExpression(forKeyPath: "label")
+            name.textFontNames = NSExpression(forConstantValue: ["Open Sans Semibold"])
+            name.textFontSize = NSExpression(forConstantValue: 12)
+            name.textAnchor = NSExpression(forConstantValue: "top")
+            name.maximumTextWidth = NSExpression(forConstantValue: 24) // keep "Name · 7 min" on one line
+            name.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: 1.4)))
+            name.textColor = NSExpression(forConstantValue: UIColor(white: 0.13, alpha: 1))
+            name.textHaloColor = NSExpression(forConstantValue: UIColor.white.withAlphaComponent(0.95))
+            name.textHaloWidth = NSExpression(forConstantValue: 1.6)
+            name.textAllowsOverlap = NSExpression(forConstantValue: true)
+            style.addLayer(name)
         }
 
         private static func zoomRamp(_ stops: [Double: Double]) -> NSExpression {
