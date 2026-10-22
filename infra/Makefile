@@ -1,5 +1,6 @@
 # hunters-map infrastructure. Run from this folder (infra/).
 #
+#   make apis        once: enable the APIs Terraform itself needs (bootstrap runs it)
 #   make bootstrap   once: create the Terraform state bucket
 #   make init        once per machine: connect Terraform to the state bucket
 #   make plan        preview infrastructure changes
@@ -12,9 +13,14 @@ PROJECT ?= $(shell sed -n 's/^project_id *= *"\(.*\)"/\1/p' terraform/terraform.
 STATE_BUCKET := $(PROJECT)-hunters-map-tfstate
 TF := terraform -chdir=terraform
 
-.PHONY: bootstrap init plan apply deploy ios-config smoke fmt validate
+.PHONY: apis bootstrap init plan apply deploy ios-config smoke fmt validate
 
-bootstrap:
+# The Google provider needs these APIs to read any project resource, so Terraform can't
+# turn them on itself. Idempotent; Terraform then tracks them (google_project_service.base).
+apis:
+	gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com --project $(PROJECT)
+
+bootstrap: apis
 	terraform -chdir=bootstrap init
 	terraform -chdir=bootstrap apply -var project_id=$(PROJECT)
 
@@ -40,7 +46,7 @@ ios-config:
 
 smoke:
 	@url=$$($(TF) output -raw api_url); \
-	curl -fsS $$url/healthz && echo && \
+	curl -fsS $$url/health && echo && \
 	curl -s -o /dev/null -w "GET /v1/me without token -> %{http_code} (expected 401)\n" $$url/v1/me
 
 fmt:

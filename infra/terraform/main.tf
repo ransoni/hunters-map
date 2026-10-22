@@ -4,6 +4,12 @@
 # and never disables APIs on destroy.
 
 locals {
+  # Needed by Terraform itself (project IAM policy, managing the other APIs), so they're
+  # enabled first and given time to propagate.
+  base_services = [
+    "cloudresourcemanager.googleapis.com",
+    "serviceusage.googleapis.com",
+  ]
   services = [
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
@@ -13,16 +19,36 @@ locals {
     "iam.googleapis.com",
     "identitytoolkit.googleapis.com", # Firebase Authentication
     "run.googleapis.com",
-    "serviceusage.googleapis.com",
   ]
   repository = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.api.repository_id}"
+}
+
+resource "google_project_service" "base" {
+  for_each = toset(local.base_services)
+
+  service            = each.value
+  disable_on_destroy = false # other workloads in the project may use them
+}
+
+moved {
+  from = google_project_service.this["serviceusage.googleapis.com"]
+  to   = google_project_service.base["serviceusage.googleapis.com"]
+}
+
+# Newly enabled APIs take a while before calls to them succeed.
+resource "time_sleep" "base_services" {
+  create_duration = "60s"
+
+  depends_on = [google_project_service.base]
 }
 
 resource "google_project_service" "this" {
   for_each = toset(local.services)
 
   service            = each.value
-  disable_on_destroy = false # other workloads in the project may use them
+  disable_on_destroy = false
+
+  depends_on = [time_sleep.base_services]
 }
 
 # ---------------------------------------------------------------------------- Firebase
@@ -142,6 +168,8 @@ resource "google_artifact_registry_repository" "api" {
 resource "google_service_account" "api" {
   account_id   = "hunters-map-api"
   display_name = "hunters-map API (Cloud Run)"
+
+  depends_on = [google_project_service.this]
 }
 
 # Read/write only the hunters-map database, not the project's other Firestore data.
@@ -161,6 +189,8 @@ resource "google_project_iam_member" "api_firebase_auth" {
   project = var.project_id
   role    = "roles/firebaseauth.admin"
   member  = google_service_account.api.member
+
+  depends_on = [google_project_service.this]
 }
 
 # ---------------------------------------------------------------------------- Cloud Run

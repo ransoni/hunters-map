@@ -34,7 +34,9 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project ai-project-479422
 ```
 
-**2. State bucket** (once; review the plan, answer `yes`):
+**2. State bucket** (once; review the plan, answer `yes`). This first enables the Cloud
+Resource Manager and Service Usage APIs with `gcloud` (`make apis`): Terraform's Google
+provider needs them to read any project resource, so it can't enable them itself.
 
 ```bash
 make bootstrap

@@ -48,8 +48,8 @@ func call(t *testing.T, ts *httptest.Server, user, method, path string, body any
 
 func TestRequiresAuth(t *testing.T) {
 	ts := newServer(t)
-	if code, _ := call(t, ts, "", "GET", "/healthz", nil); code != http.StatusOK {
-		t.Errorf("healthz: %d", code)
+	if code, _ := call(t, ts, "", "GET", "/health", nil); code != http.StatusOK {
+		t.Errorf("health: %d", code)
 	}
 	if code, body := call(t, ts, "", "GET", "/v1/me", nil); code != http.StatusUnauthorized {
 		t.Errorf("no token: %d %v", code, body)

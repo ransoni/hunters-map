@@ -1,7 +1,7 @@
 // Package api is the HTTP layer of the hunters-map backend. All /v1 routes require a
 // Firebase ID token ("Authorization: Bearer <token>").
 //
-//	GET    /healthz
+//	GET    /health
 //	GET    /v1/me                              profile (created on first call)
 //	PUT    /v1/me                              {displayName}
 //	DELETE /v1/me                              delete account and all its data
@@ -60,7 +60,7 @@ func (s *Server) Handler() http.Handler {
 	v1.HandleFunc("POST /v1/locations", s.postLocation)
 
 	root := http.NewServeMux()
-	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	root.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	root.Handle("/v1/", auth.Middleware(s.verifier, writeError)(v1))
@@ -333,7 +333,7 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		if r.URL.Path == "/healthz" {
+		if r.URL.Path == "/health" {
 			return
 		}
 		s.log.InfoContext(r.Context(), "request",

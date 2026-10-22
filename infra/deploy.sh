@@ -27,6 +27,6 @@ echo "==> Deploying to Cloud Run service $service ($region)"
 gcloud run services update "$service" --project "$project" --region "$region" --image "$image" --quiet
 
 echo "==> Health check"
-curl -fsS "$url/healthz"
+curl -fsS "$url/health"
 echo
 echo "Deployed $image to $url"
