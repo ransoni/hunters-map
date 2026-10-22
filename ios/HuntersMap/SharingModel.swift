@@ -18,6 +18,8 @@ struct HunterPosition: Identifiable, Equatable {
     let latitude: Double
     let longitude: Double
     let accuracy: Double
+    /// Smoothed direction of travel (compass degrees), nil when standing still.
+    let heading: Double?
     let updatedAt: Date
     let sharingUntil: Date
 
@@ -38,6 +40,11 @@ final class SharingModel: ObservableObject {
     /// GPS reports nothing while standing still (e.g. at a hunting post), so the last position
     /// is re-sent this often to show others the hunter is still there.
     static let heartbeatInterval: TimeInterval = 60
+    /// Direction of travel = bearing from where the hunter was this far back to where they are
+    /// now: the average of all small steps in between, so GPS jitter doesn't swing the arrow.
+    static let headingDistance: CLLocationDistance = 30
+    /// No direction (no arrow) unless `headingDistance` was covered within this time.
+    static let headingWindow: TimeInterval = 120
     static let durations: [TimeInterval] = [2, 4, 8, 12, 24].map { $0 * 3600 }
 
     /// The caller's groups; `sharingUntil` is the caller's own sharing in that group.
@@ -57,6 +64,8 @@ final class SharingModel: ObservableObject {
     private var uid: String?
     private var listeners: [String: ListenerRegistration] = [:]
     private var lastSent: CLLocation?
+    /// Every accurate fix from the last `headingWindow`, for the smoothed direction.
+    private var recentFixes: [CLLocation] = []
     private var uploading = false
     private var timer: Timer?
 
@@ -172,30 +181,52 @@ final class SharingModel: ObservableObject {
     }
 
     private func handle(_ location: CLLocation) {
-        guard isSharing, !uploading else { return }
+        guard isSharing else { return }
+        recentFixes.append(location)
+        recentFixes.removeAll { location.timestamp.timeIntervalSince($0.timestamp) > Self.headingWindow }
+        guard !uploading else { return }
         if let lastSent,
            location.timestamp.timeIntervalSince(lastSent.timestamp) < Self.uploadInterval,
            location.distance(from: lastSent) < Self.uploadDistance {
             return
         }
-        upload(location, recordedAt: location.timestamp)
+        upload(location, recordedAt: location.timestamp, heading: smoothedHeading(at: location))
+    }
+
+    /// Compass bearing (0-360) from the most recent fix at least `headingDistance` back to
+    /// `location`, or nil when the hunter hasn't moved that far within `headingWindow`.
+    private func smoothedHeading(at location: CLLocation) -> Double? {
+        guard let from = recentFixes.last(where: { location.distance(from: $0) >= Self.headingDistance }) else {
+            return nil
+        }
+        return Self.bearing(from: from.coordinate, to: location.coordinate)
+    }
+
+    static func bearing(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        let lat1 = a.latitude * .pi / 180, lat2 = b.latitude * .pi / 180
+        let dLon = (b.longitude - a.longitude) * .pi / 180
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        let degrees = atan2(y, x) * 180 / .pi
+        return (degrees + 360).truncatingRemainder(dividingBy: 360)
     }
 
     /// Re-sends the last fix when GPS has been quiet (not moving) for `heartbeatInterval`.
     private func heartbeat() {
         guard isSharing, !uploading, let location = recorder.lastLocation else { return }
         if let lastUpload, Date.now.timeIntervalSince(lastUpload) < Self.heartbeatInterval { return }
-        // No new fix means the phone hasn't moved more than the GPS distance filter.
-        upload(location, recordedAt: .now)
+        // No new fix means the phone hasn't moved more than the GPS distance filter, so there
+        // is no direction of travel either.
+        upload(location, recordedAt: .now, heading: nil)
     }
 
-    private func upload(_ location: CLLocation, recordedAt: Date) {
+    private func upload(_ location: CLLocation, recordedAt: Date, heading: Double?) {
         uploading = true
         let body = SharedLocation(
             lat: location.coordinate.latitude,
             lon: location.coordinate.longitude,
             accuracy: max(0, location.horizontalAccuracy),
-            heading: location.course >= 0 && location.course < 360 ? location.course : nil,
+            heading: heading,
             speed: location.speed >= 0 && location.speed <= 100 ? location.speed : nil,
             recordedAt: recordedAt)
         Task {
@@ -271,6 +302,7 @@ final class SharingModel: ObservableObject {
             name: d["displayName"] as? String ?? "?",
             latitude: lat, longitude: lon,
             accuracy: d["accuracy"] as? Double ?? 0,
+            heading: d["heading"] as? Double,
             updatedAt: updated, sharingUntil: until)
     }
 

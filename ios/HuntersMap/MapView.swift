@@ -292,11 +292,14 @@ struct MapView: UIViewRepresentable {
                 let stale = h.isStale(now: now)
                 let minutes = Int(now.timeIntervalSince(h.updatedAt) / 60)
                 let age = minutes < 1 ? "nyt" : "\(minutes) min"
-                point.attributes = [
+                var attributes: [String: Any] = [
                     "initials": HunterStyle.initials(h.name),
                     "label": "\(h.name) · \(age)",
                     "color": HunterStyle.hex(stale ? HunterStyle.stale : HunterStyle.color(for: h.id)),
                 ]
+                // Direction arrow only while moving and the position is fresh.
+                if let heading = h.heading, !stale { attributes["heading"] = heading }
+                point.attributes = attributes
                 return point
             }
             source.shape = MLNShapeCollectionFeature(shapes: points)
@@ -338,6 +341,20 @@ struct MapView: UIViewRepresentable {
             let source = MLNShapeSource(identifier: "hunters", shape: nil, options: nil)
             style.addSource(source)
 
+            // Direction of travel: a triangle at the circle's edge, rotated by the smoothed
+            // heading the hunter's phone sends. Template image, so it takes the hunter's colour.
+            style.setImage(Self.arrowImage(), forName: "hunter-arrow")
+            let arrow = MLNSymbolStyleLayer(identifier: "hunters-arrow", source: source)
+            arrow.predicate = NSPredicate(format: "heading != nil")
+            arrow.iconImageName = NSExpression(forConstantValue: "hunter-arrow")
+            arrow.iconRotation = NSExpression(forKeyPath: "heading")
+            arrow.iconRotationAlignment = NSExpression(forConstantValue: "map")
+            arrow.iconColor = NSExpression(format: "CAST(color, 'UIColor')")
+            arrow.iconHaloColor = NSExpression(forConstantValue: UIColor.white)
+            arrow.iconHaloWidth = NSExpression(forConstantValue: 2)
+            arrow.iconAllowsOverlap = NSExpression(forConstantValue: true)
+            arrow.iconIgnoresPlacement = NSExpression(forConstantValue: true)
+
             let dot = MLNCircleStyleLayer(identifier: "hunters-dot", source: source)
             dot.circleRadius = NSExpression(forConstantValue: 13)
             dot.circleColor = NSExpression(format: "CAST(color, 'UIColor')")
@@ -366,6 +383,25 @@ struct MapView: UIViewRepresentable {
             name.textHaloWidth = NSExpression(forConstantValue: 1.6)
             name.textAllowsOverlap = NSExpression(forConstantValue: true)
             style.addLayer(name)
+            style.addLayer(arrow) // on top, so the name label never hides it
+        }
+
+        /// 76x76 pt canvas centred on the hunter, with an arrowhead just outside the circle
+        /// (radius 13 + stroke), pointing up (north); rotating the whole icon by the heading
+        /// moves it around the circle.
+        private static func arrowImage() -> UIImage {
+            let size = CGSize(width: 76, height: 76)
+            let image = UIGraphicsImageRenderer(size: size).image { _ in
+                let path = UIBezierPath()
+                path.move(to: CGPoint(x: 38, y: 2))   // tip, 36 pt from the centre
+                path.addLine(to: CGPoint(x: 49, y: 20)) // base corners 18 pt from the centre
+                path.addLine(to: CGPoint(x: 38, y: 15))
+                path.addLine(to: CGPoint(x: 27, y: 20))
+                path.close()
+                UIColor.black.setFill()
+                path.fill()
+            }
+            return image.withRenderingMode(.alwaysTemplate)
         }
 
         private static func zoomRamp(_ stops: [Double: Double]) -> NSExpression {
