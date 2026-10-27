@@ -94,9 +94,10 @@ enum BaseMap {
 }
 
 /// Adjustments to MML's vector style for use in the field: stronger contour lines, wider
-/// ditches and small streams, larger place names, and clearcuts and fields drawn like on the
-/// raster maastokartta hunters are used to (green hatching and yellow, not the other way round). Applied when the style has loaded, by layer id and
-/// source layer, so a missing layer (a style update at MML) is simply skipped.
+/// ditches and small streams, readable cliff tick marks, larger place names, and clearcuts and
+/// fields drawn like on the raster maastokartta hunters are used to (green hatching and yellow,
+/// not the other way round). Applied when the style has loaded, by layer id and source layer,
+/// so a missing layer (a style update at MML) is simply skipped.
 enum VectorStyleTweaks {
     /// Darker than MML's light orange (252, 179, 110), so contours read in daylight.
     static let contourColor = UIColor(red: 0xD9 / 255, green: 0x7A / 255, blue: 0x2E / 255, alpha: 1)
@@ -107,7 +108,16 @@ enum VectorStyleTweaks {
         "korkeus_paaviiva2": [11: 1.4, 14: 2.2, 17: 3],
         "korkeus_paaviiva": [13: 2.2, 17: 3.2],
         "vesisto_viiva_kapea": [11: 1, 13: 2, 15: 3, 17: 4.5],
+        "maasto_viiva_jyrkanne": [12: 1.2, 14: 2.5, 16: 4.5, 18: 7],
+        // The cliff's tick marks: a dashed line beside the cliff whose width is the tick length.
+        cliffTicks: [14: 6, 16: 11, 18: 18],
     ]
+    /// Cliff tick marks (jyrkänteen pykälät). MML draws them as dashes a tenth of the line width
+    /// thick and as long as the cliff line is wide, which is too fine to see. The raster map's
+    /// ticks are about a fifth as thick as they are long and 1.5 tick lengths apart, on a cliff
+    /// line about 40 % of the tick length wide. Dash lengths are in multiples of the tick length.
+    static let cliffTicks = "maasto_viiva_jyrkanne_pykala"
+    static let cliffTickDashes: [Double] = [0.2, 1.3]
     /// Place name text size multiplier by zoom. MML's names stop growing at zoom 14–16 while a
     /// raster map's lettering keeps growing as it is magnified, so the factor grows with zoom to
     /// keep names about as large as on the raster maastokartta.
@@ -142,9 +152,12 @@ enum VectorStyleTweaks {
                     line.lineColor = NSExpression(forConstantValue: contourColor)
                 }
                 if let stops = lineWidths[line.identifier] {
-                    line.lineWidth = NSExpression(
-                        format: "mgl_interpolate:withCurveType:parameters:stops:($zoomLevel, 'linear', nil, %@)",
-                        stops as NSDictionary)
+                    line.lineWidth = zoomRamp(stops)
+                    if line.identifier == cliffTicks {
+                        // Shifted by half its width, so the ticks start at the cliff line.
+                        line.lineOffset = zoomRamp(stops.mapValues { $0 / 2 })
+                        line.lineDashPattern = NSExpression(forConstantValue: cliffTickDashes)
+                    }
                 }
             } else if let symbol = layer as? MLNSymbolStyleLayer, symbol.sourceLayerIdentifier == "nimisto",
                       let size = symbol.textFontSize {
@@ -166,11 +179,15 @@ enum VectorStyleTweaks {
             outline.predicate = NSPredicate(format: "kohdeluokka == %d", fieldClass)
             outline.minimumZoomLevel = 12
             outline.lineColor = NSExpression(forConstantValue: fieldOutlineColor)
-            outline.lineWidth = NSExpression(
-                format: "mgl_interpolate:withCurveType:parameters:stops:($zoomLevel, 'linear', nil, %@)",
-                [12: 0.4, 15: 0.9, 17: 1.4] as NSDictionary)
+            outline.lineWidth = zoomRamp([12: 0.4, 15: 0.9, 17: 1.4])
             style.insertLayer(outline, above: style.layer(withIdentifier: "clearcut-hatch") ?? landUseFill)
         }
+    }
+
+    private static func zoomRamp(_ stops: [Double: Double]) -> NSExpression {
+        NSExpression(
+            format: "mgl_interpolate:withCurveType:parameters:stops:($zoomLevel, 'linear', nil, %@)",
+            stops as NSDictionary)
     }
 
     /// Diagonal stripes rising to the right, as on the raster map: one repeat per 12 pt across,
