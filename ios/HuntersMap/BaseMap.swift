@@ -94,9 +94,9 @@ enum BaseMap {
 }
 
 /// Adjustments to MML's vector style for use in the field: stronger contour lines, wider
-/// ditches and small streams, readable cliff tick marks, larger place names, and clearcuts and
-/// fields drawn like on the raster maastokartta hunters are used to (green hatching and yellow,
-/// not the other way round). Applied when the style has loaded, by layer id and source layer,
+/// ditches and small streams, readable cliff tick marks, larger place names, and clearcuts,
+/// fields and open water drawn like on the raster maastokartta hunters are used to (green
+/// hatching, yellow, and bright cyan with a blue shoreline). Applied when the style has loaded, by layer id and source layer,
 /// so a missing layer (a style update at MML) is simply skipped.
 enum VectorStyleTweaks {
     /// Darker than MML's light orange (252, 179, 110), so contours read in daylight.
@@ -131,12 +131,20 @@ enum VectorStyleTweaks {
     static let clearcutHatchColor = UIColor(red: 195 / 255, green: 220 / 255, blue: 0, alpha: 1)
     static let fieldColor = UIColor(red: 1, green: 222 / 255, blue: 145 / 255, alpha: 1)
     static let fieldOutlineColor = UIColor(white: 0.2, alpha: 1)
+    /// The raster map's open water: bright cyan with a blue shoreline, instead of MML's pale blue.
+    static let waterColor = UIColor(red: 142 / 255, green: 253 / 255, blue: 1, alpha: 1)
+    static let shorelineColor = UIColor(red: 0, green: 150 / 255, blue: 1, alpha: 1)
 
     static func apply(to style: MLNStyle) {
         var terrainFill: MLNFillStyleLayer?
         var landUseFill: MLNFillStyleLayer?
+        var waterFill: MLNFillStyleLayer?
         for layer in style.layers {
             if let fill = layer as? MLNFillStyleLayer {
+                if fill.sourceLayerIdentifier == "vesisto_alue" {
+                    fill.fillColor = NSExpression(forConstantValue: waterColor)
+                    waterFill = fill
+                }
                 // Clearcuts lose MML's yellow (it reads as a field); the hatching below replaces it.
                 if fill.sourceLayerIdentifier == "maasto_alue", let color = fill.fillColor {
                     fill.fillColor = NSExpression(mglJSONObject: replacingMatchOutput(
@@ -181,6 +189,13 @@ enum VectorStyleTweaks {
             outline.lineColor = NSExpression(forConstantValue: fieldOutlineColor)
             outline.lineWidth = zoomRamp([12: 0.4, 15: 0.9, 17: 1.4])
             style.insertLayer(outline, above: style.layer(withIdentifier: "clearcut-hatch") ?? landUseFill)
+        }
+        if let waterFill, let source = waterFill.sourceIdentifier.flatMap(style.source(withIdentifier:)) {
+            let shoreline = MLNLineStyleLayer(identifier: "shoreline", source: source)
+            shoreline.sourceLayerIdentifier = "vesisto_alue"
+            shoreline.lineColor = NSExpression(forConstantValue: shorelineColor)
+            shoreline.lineWidth = zoomRamp([10: 0.6, 14: 1.6, 17: 3])
+            style.insertLayer(shoreline, above: waterFill)
         }
     }
 
