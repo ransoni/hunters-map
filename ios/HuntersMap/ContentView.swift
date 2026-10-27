@@ -132,8 +132,8 @@ struct ContentView: View {
         .padding(.bottom, 24)
     }
 
-    /// Base map choice: topo map or orthophotos (the latter needs the MML key), and the
-    /// lead shot ban area overlay.
+    /// Base map choice: vector or raster topo map or orthophotos (the last two need the MML
+    /// key), and the lead shot ban area overlay.
     private var layerButton: some View {
         Menu {
             ForEach(BaseLayer.allCases) { layer in
@@ -145,10 +145,10 @@ struct ContentView: View {
                     Label {
                         Text(layer.title)
                     } icon: {
-                        Image(uiImage: layer == .topo ? MapIcons.topo : MapIcons.ortho)
+                        Image(uiImage: MapIcons.icon(for: layer))
                     }
                 }
-                .disabled(layer == .ortho && !BaseMap.orthoAvailable)
+                .disabled(!BaseMap.isAvailable(layer))
             }
             Section {
                 Toggle(isOn: $showLeadShotBan) {

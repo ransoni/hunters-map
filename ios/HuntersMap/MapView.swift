@@ -72,6 +72,9 @@ struct MapView: UIViewRepresentable {
         var parent: MapView
         var zoomedStep = 0
         private var styleLoaded = false
+        /// The loaded style's own layers, before ours were added.
+        private var styleLayerIDs: [String] = []
+        private var shownBase: BaseLayer?
         private var shownCode: String?? = .none // .none = nothing applied yet
         private var fittedRequest = 0
         private var drawnTrack: [TrackPoint] = []
@@ -84,6 +87,7 @@ struct MapView: UIViewRepresentable {
         deinit { trailTimer?.invalidate() }
 
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+            if BaseMap.mmlKey != nil { VectorStyleTweaks.apply(to: style) }
             addBaseLayers(to: style) // first of ours, so everything else draws on top
             addAreaLayers(to: style)
             addTrailLayers(to: style)
@@ -150,8 +154,9 @@ struct MapView: UIViewRepresentable {
         }
 
         private func addBaseLayers(to style: MLNStyle) {
+            styleLayerIDs = style.layers.map(\.identifier)
             // Over the style's own layers (the MML vector map), under ours.
-            for spec in [BaseMap.rasterTopo, BaseMap.ortho].compactMap({ $0 }) {
+            for (_, spec) in BaseMap.rasterLayers {
                 let source = MLNRasterTileSource(identifier: spec.id, tileURLTemplates: spec.tiles, options: [
                     .tileSize: 256,
                     .maximumZoomLevel: spec.maxZoom,
@@ -173,13 +178,20 @@ struct MapView: UIViewRepresentable {
             style.addLayer(layer)
         }
 
-        /// Shows the chosen base layer and hides the other.
+        /// Shows the chosen base layer and hides the others. The style's own layers (the MML
+        /// vector map) are hidden under a raster choice, so their tiles aren't loaded for nothing.
         func applyBaseLayer(on mapView: MLNMapView) {
             guard styleLoaded, let style = mapView.style else { return }
-            let shown = BaseMap.effective(parent.baseLayer)
-            style.layer(withIdentifier: "base-topo")?.isVisible = shown == .topo
-            style.layer(withIdentifier: "base-ortho")?.isVisible = shown == .ortho
             style.layer(withIdentifier: LeadShotBan.source.id)?.isVisible = parent.showLeadShotBan
+            let shown = BaseMap.effective(parent.baseLayer)
+            guard shown != shownBase else { return }
+            shownBase = shown
+            for id in styleLayerIDs where id != "background" {
+                style.layer(withIdentifier: id)?.isVisible = shown == .topo
+            }
+            for (layer, spec) in BaseMap.rasterLayers {
+                style.layer(withIdentifier: spec.id)?.isVisible = layer == shown
+            }
         }
 
         private func addAreaLayers(to style: MLNStyle) {

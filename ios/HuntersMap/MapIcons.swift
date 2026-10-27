@@ -1,8 +1,17 @@
 import UIKit
 
 /// Icons for the base map choices, drawn in code as template images (they take the menu's
-/// text colour): a topo map with contour lines, and an aerial photo of fields and forest.
+/// text colour): a topo map with contour lines, the same with pixel-stepped contours for the
+/// raster map, and an aerial photo of fields and forest.
 enum MapIcons {
+    static func icon(for layer: BaseLayer) -> UIImage {
+        switch layer {
+        case .topo: topo
+        case .topoRaster: topoRaster
+        case .ortho: ortho
+        }
+    }
+
     static let topo = draw { r in
         frame(r).stroke()
         // A hill: nested, slightly irregular contour loops, off-centre like real terrain.
@@ -10,6 +19,16 @@ enum MapIcons {
         for (rx, ry, wobble) in loops {
             contour(center: CGPoint(x: r.midX + 1, y: r.midY + 1), rx: rx * r.width, ry: ry * r.height,
                     wobble: wobble * r.width).stroke()
+        }
+    }
+
+    static let topoRaster = draw { r in
+        frame(r).stroke()
+        // The same hill, with contours snapped to a pixel grid.
+        let loops: [(CGFloat, CGFloat)] = [(0.38, 0.32), (0.24, 0.20), (0.10, 0.08)]
+        for (rx, ry) in loops {
+            stepped(center: CGPoint(x: r.midX + 1, y: r.midY + 1), rx: rx * r.width, ry: ry * r.height,
+                    grid: 1.5).stroke()
         }
     }
 
@@ -73,6 +92,26 @@ enum MapIcons {
         }
         path.close()
         path.lineWidth = 1.2
+        return path
+    }
+
+    /// An ellipse traced along a square grid, so it reads as pixels.
+    private static func stepped(center c: CGPoint, rx: CGFloat, ry: CGFloat, grid: CGFloat) -> UIBezierPath {
+        let snap = { (v: CGFloat, o: CGFloat) in o + ((v - o) / grid).rounded() * grid }
+        let path = UIBezierPath()
+        var last: CGPoint?
+        for i in 0...64 {
+            let t = CGFloat(i) / 64 * 2 * .pi
+            let p = CGPoint(x: snap(c.x + rx * cos(t), c.x), y: snap(c.y + ry * sin(t), c.y))
+            guard let prev = last else { path.move(to: p); last = p; continue }
+            guard p != prev else { continue }
+            path.addLine(to: CGPoint(x: p.x, y: prev.y)) // horizontal, then vertical: a stair step
+            path.addLine(to: p)
+            last = p
+        }
+        path.close()
+        path.lineWidth = 1
+        path.lineJoinStyle = .miter
         return path
     }
 }

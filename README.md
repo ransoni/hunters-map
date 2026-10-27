@@ -155,10 +155,11 @@ iOS 17+). MVP:
   sijaintimerkin) ja jatkuu sovelluksen uudelleenkäynnistyksen jälkeen.
   Jatkuva GPS kuluttaa akkua, joten lopeta tallennus, kun et tarvitse sitä.
 
-Pohjakartta: kerrosnapista *Maastokartta* tai *Ortokuva*. Maanmittauslaitoksen
-rajapinta-avaimella maastokartta on MML:n vektoritiilikartta (tyyli *hobby*, v21:
-korkeuskäyrät, maastotyypit, nimistö) ja ortokuva on käytettävissä; ilman avainta
-käytetään OpenTopoMapia. Sovellus lähettää avaimen vain MML:n palvelimelle. Avain laitetaan tiedostoon `ios/Secrets.xcconfig`
+Pohjakartta: kerrosnapista *Maastokartta*, *Rasterikartta* tai *Ortokuva*.
+Maanmittauslaitoksen rajapinta-avaimella maastokartta on MML:n vektoritiilikartta
+(tyyli *hobby*, v21: korkeuskäyrät, maastotyypit, nimistö), rasterikartta MML:n
+perinteinen maastokartta ja ortokuva ilmakuva; ilman avainta käytetään OpenTopoMapia
+eikä MML:n tasoja voi valita. Sovellus lähettää avaimen vain MML:n palvelimelle. Avain laitetaan tiedostoon `ios/Secrets.xcconfig`
 (ei versionhallinnassa, ks. `ios/Config.xcconfig`):
 
 ```
