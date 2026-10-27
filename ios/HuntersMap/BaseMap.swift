@@ -94,7 +94,8 @@ enum BaseMap {
 }
 
 /// Adjustments to MML's vector style for use in the field: stronger contour lines, wider
-/// ditches and small streams, and larger place names than in the "hobby" style. Applied when the style has loaded, by layer id and
+/// ditches and small streams, larger place names, and clearcuts and fields drawn like on the
+/// raster maastokartta hunters are used to (green hatching and yellow, not the other way round). Applied when the style has loaded, by layer id and
 /// source layer, so a missing layer (a style update at MML) is simply skipped.
 enum VectorStyleTweaks {
     /// Darker than MML's light orange (252, 179, 110), so contours read in daylight.
@@ -112,9 +113,31 @@ enum VectorStyleTweaks {
     /// keep names about as large as on the raster maastokartta.
     static let placeNameScale: [(zoom: Double, factor: Double)] = [(10, 1.25), (14, 1.6), (16, 2.2), (18, 2.8)]
 
+    /// MTK feature classes (kohdeluokka): open forest land, i.e. clearcuts and seedling stands,
+    /// and cultivated fields.
+    static let clearcutClass = 39110
+    static let fieldClass = 32611
+    /// The raster map's colours: yellow-green clearcut hatching and orange-yellow fields.
+    static let clearcutHatchColor = UIColor(red: 195 / 255, green: 220 / 255, blue: 0, alpha: 1)
+    static let fieldColor = UIColor(red: 1, green: 222 / 255, blue: 145 / 255, alpha: 1)
+    static let fieldOutlineColor = UIColor(white: 0.2, alpha: 1)
+
     static func apply(to style: MLNStyle) {
+        var terrainFill: MLNFillStyleLayer?
+        var landUseFill: MLNFillStyleLayer?
         for layer in style.layers {
-            if let line = layer as? MLNLineStyleLayer {
+            if let fill = layer as? MLNFillStyleLayer {
+                // Clearcuts lose MML's yellow (it reads as a field); the hatching below replaces it.
+                if fill.sourceLayerIdentifier == "maasto_alue", let color = fill.fillColor {
+                    fill.fillColor = NSExpression(mglJSONObject: replacingMatchOutput(
+                        color.mgl_jsonExpressionObject, for: clearcutClass, with: "rgba(0, 0, 0, 0)"))
+                    terrainFill = fill
+                } else if fill.sourceLayerIdentifier == "maankaytto", let color = fill.fillColor {
+                    fill.fillColor = NSExpression(mglJSONObject: replacingMatchOutput(
+                        color.mgl_jsonExpressionObject, for: fieldClass, with: hex(fieldColor)))
+                    landUseFill = fill
+                }
+            } else if let line = layer as? MLNLineStyleLayer {
                 if line.sourceLayerIdentifier == "korkeus" {
                     line.lineColor = NSExpression(forConstantValue: contourColor)
                 }
@@ -129,6 +152,61 @@ enum VectorStyleTweaks {
                     mglJSONObject: scaledByZoom(size.mgl_jsonExpressionObject))
             }
         }
+        if let terrainFill, let source = terrainFill.sourceIdentifier.flatMap(style.source(withIdentifier:)) {
+            style.setImage(clearcutHatch, forName: "clearcut-hatch")
+            let hatch = MLNFillStyleLayer(identifier: "clearcut-hatch", source: source)
+            hatch.sourceLayerIdentifier = "maasto_alue"
+            hatch.predicate = NSPredicate(format: "kohdeluokka == %d", clearcutClass)
+            hatch.fillPattern = NSExpression(forConstantValue: "clearcut-hatch")
+            style.insertLayer(hatch, above: landUseFill ?? terrainFill)
+        }
+        if let landUseFill, let source = landUseFill.sourceIdentifier.flatMap(style.source(withIdentifier:)) {
+            let outline = MLNLineStyleLayer(identifier: "field-outline", source: source)
+            outline.sourceLayerIdentifier = "maankaytto"
+            outline.predicate = NSPredicate(format: "kohdeluokka == %d", fieldClass)
+            outline.minimumZoomLevel = 12
+            outline.lineColor = NSExpression(forConstantValue: fieldOutlineColor)
+            outline.lineWidth = NSExpression(
+                format: "mgl_interpolate:withCurveType:parameters:stops:($zoomLevel, 'linear', nil, %@)",
+                [12: 0.4, 15: 0.9, 17: 1.4] as NSDictionary)
+            style.insertLayer(outline, above: style.layer(withIdentifier: "clearcut-hatch") ?? landUseFill)
+        }
+    }
+
+    /// Diagonal stripes rising to the right, as on the raster map: one repeat per 12 pt across,
+    /// a third of it green. The raster's stripes scale with zoom (about 8–18 pt); this is fixed
+    /// in between. The tile wraps seamlessly because each stripe is drawn three times.
+    private static let clearcutHatch: UIImage = {
+        let size: CGFloat = 12
+        return UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { context in
+            let cg = context.cgContext
+            cg.setStrokeColor(clearcutHatchColor.cgColor)
+            cg.setLineWidth(size / 3 / 2.squareRoot())
+            for offset in [-size, 0, size] {
+                cg.move(to: CGPoint(x: offset - 1, y: size + 1))
+                cg.addLine(to: CGPoint(x: offset + size + 1, y: -1))
+            }
+            cg.strokePath()
+        }
+    }()
+
+    /// In a ["match", input, label(s), output, ..., fallback] expression, replaces the output for
+    /// `value`, whether it is listed alone or in a label array.
+    private static func replacingMatchOutput(_ expression: Any, for value: Int, with output: Any) -> Any {
+        guard var array = expression as? [Any], array.first as? String == "match", array.count >= 5 else { return expression }
+        for i in stride(from: 2, to: array.count - 1, by: 2) {
+            let labels = (array[i] as? [Any]) ?? [array[i]]
+            if labels.contains(where: { ($0 as? NSNumber)?.intValue == value }) {
+                array[i + 1] = output
+            }
+        }
+        return array
+    }
+
+    private static func hex(_ color: UIColor) -> String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
     }
 
     /// placeNameScale at a zoom level, interpolated linearly between its stops.
