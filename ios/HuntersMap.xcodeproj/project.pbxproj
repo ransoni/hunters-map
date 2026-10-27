@@ -16,6 +16,7 @@
 
 /* Begin PBXFileReference section */
 		AA0000000000000000000001 /* HuntersMap.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HuntersMap.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000080 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -46,6 +47,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000002 /* HuntersMap */,
+				AA0000000000000000000080 /* Config.xcconfig */,
 				AA0000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -229,6 +231,7 @@
 		};
 		AA0000000000000000000035 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA0000000000000000000080 /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -256,6 +259,7 @@
 		};
 		AA0000000000000000000036 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA0000000000000000000080 /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

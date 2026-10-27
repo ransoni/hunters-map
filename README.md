@@ -142,8 +142,8 @@ kuvaa karkeasti kannan tiheyttä. Huomioita:
 `ios/` sisältää iPhone-sovelluksen (SwiftUI + [MapLibre Native](https://github.com/maplibre/maplibre-native),
 iOS 17+). MVP:
 
-- OpenTopoMap-maastokartta pohjana (`ios/HuntersMap/TopoStyle.json`; vaihdetaan
-  myöhemmin MML:n vektorimaastokarttaan)
+- Maanmittauslaitoksen vektorimaastokartta pohjana (ilman API-avainta OpenTopoMap),
+  ks. `ios/HuntersMap/BaseMap.swift`
 - GPS-sijainti kartalla; sijaintinappi kiertää *ei seurantaa → seuraa → seuraa suuntaa*
 - Kanalintualueen valinta haettavasta listasta (nimi, numero, kunta tai maakunta).
   Valittu alue piirretään kartalle ja kartta kohdistuu siihen; valinta säilyy
@@ -154,6 +154,16 @@ iOS 17+). MVP:
   lukittuna (taustasijainti, `ios/HuntersMap-Info.plist`; iOS näyttää sinisen
   sijaintimerkin) ja jatkuu sovelluksen uudelleenkäynnistyksen jälkeen.
   Jatkuva GPS kuluttaa akkua, joten lopeta tallennus, kun et tarvitse sitä.
+
+Pohjakartta: kerrosnapista *Maastokartta* tai *Ortokuva*. Maanmittauslaitoksen
+rajapinta-avaimella maastokartta on MML:n vektoritiilikartta (tyyli *hobby*, v21:
+korkeuskäyrät, maastotyypit, nimistö) ja ortokuva on käytettävissä; ilman avainta
+käytetään OpenTopoMapia. Sovellus lähettää avaimen vain MML:n palvelimelle. Avain laitetaan tiedostoon `ios/Secrets.xcconfig`
+(ei versionhallinnassa, ks. `ios/Config.xcconfig`):
+
+```
+MML_API_KEY = <avain>
+```
 
 Sovellus käyttää samoja tiedostoja kuin selainkartta: Xcoden *Copy area data*
 -vaihe kopioi `web/data/areas.json` ja `areas.geojson` sovellukseen, joten aja

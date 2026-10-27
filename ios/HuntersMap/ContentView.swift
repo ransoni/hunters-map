@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var settingsStart: SettingsRoute?
     @State private var togglingSharing = false
     @AppStorage(TrailSettings.recentMinutesKey) private var recentTrailMinutes = TrailSettings.defaultRecentMinutes
+    @AppStorage(BaseLayer.storageKey) private var baseLayer = BaseLayer.topo
+    @AppStorage(LeadShotBan.storageKey) private var showLeadShotBan = false
     @State private var trackingMode: MLNUserTrackingMode = .none
     @State private var fitRequest = 0
     @State private var zoomStep: MapView.ZoomStep?
@@ -21,13 +23,13 @@ struct ContentView: View {
     var body: some View {
         MapView(areas: store.areas, selected: store.selected, trackingMode: $trackingMode,
                 fitRequest: fitRequest, zoomStep: zoomStep, track: recorder.points, hunters: sharing.hunters, hunterTrails: sharing.trails,
-                recentTrailMinutes: recentTrailMinutes)
+                recentTrailMinutes: recentTrailMinutes, baseLayer: baseLayer, showLeadShotBan: showLeadShotBan)
             .ignoresSafeArea()
             .overlay(alignment: .top) { areaBar.padding(.horizontal) }
             .overlay(alignment: .bottomTrailing) {
                 VStack(spacing: 16) {
                     zoomButtons
-                    locationButton
+                    locationAndLayers
                 }
                 .padding()
             }
@@ -118,6 +120,51 @@ struct ContentView: View {
         showingSettings = true
     }
 
+    /// Second control group: base map choice above the location button.
+    private var locationAndLayers: some View {
+        VStack(spacing: 0) {
+            layerButton
+            Divider().frame(width: 34)
+            locationButton
+        }
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .padding(.bottom, 24)
+    }
+
+    /// Base map choice: topo map or orthophotos (the latter needs the MML key), and the
+    /// lead shot ban area overlay.
+    private var layerButton: some View {
+        Menu {
+            ForEach(BaseLayer.allCases) { layer in
+                // Toggle items show a checkmark next to the icon for the current choice.
+                Toggle(isOn: Binding(
+                    get: { BaseMap.effective(baseLayer) == layer },
+                    set: { if $0 { baseLayer = layer } }
+                )) {
+                    Label {
+                        Text(layer.title)
+                    } icon: {
+                        Image(uiImage: layer == .topo ? MapIcons.topo : MapIcons.ortho)
+                    }
+                }
+                .disabled(layer == .ortho && !BaseMap.orthoAvailable)
+            }
+            Section {
+                Toggle(isOn: $showLeadShotBan) {
+                    Label("Lyijyhaulikielto", systemImage: "drop.triangle")
+                }
+            }
+        } label: {
+            Image(systemName: "square.3.layers.3d")
+                .font(.title2.weight(.medium))
+                .frame(width: 54, height: 54)
+                .contentShape(Rectangle())
+        }
+        .foregroundStyle(.primary)
+        .accessibilityLabel("Karttataso")
+    }
+
     /// Big +/− buttons: easier than pinching with gloves or one hand.
     private var zoomButtons: some View {
         VStack(spacing: 0) {
@@ -163,11 +210,9 @@ struct ContentView: View {
             Image(systemName: locationIcon)
                 .font(.title2.weight(.medium))
                 .frame(width: 54, height: 54)
-                .background(.regularMaterial, in: Circle())
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+                .contentShape(Rectangle())
         }
         .accessibilityLabel("Oma sijainti")
-        .padding(.bottom, 24)
     }
 
     private var locationIcon: String {

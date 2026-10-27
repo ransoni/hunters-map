@@ -1,7 +1,7 @@
 import SwiftUI
 import MapLibre
 
-// Topo base map (TopoStyle.json) with the pienriista-alueet on top: every kanalintu area
+// Topo base map (BaseMap.styleURL) with the pienriista-alueet on top: every kanalintu area
 // is outlined faintly, the selected one is filled and outlined like on the web map.
 struct MapView: UIViewRepresentable {
     let areas: [Area]
@@ -19,6 +19,10 @@ struct MapView: UIViewRepresentable {
     let hunterTrails: [String: [TrackPoint]]
     /// How many of the latest minutes of each trail are drawn in colour (TrailSettings).
     let recentTrailMinutes: Int
+    /// Topo map or orthophotos (BaseMap.swift).
+    let baseLayer: BaseLayer
+    /// Lead shot ban areas over the base map (LeadShotBan in BaseMap.swift).
+    let showLeadShotBan: Bool
 
     struct ZoomStep: Equatable {
         let id: Int
@@ -36,8 +40,8 @@ struct MapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let styleURL = Bundle.main.url(forResource: "TopoStyle", withExtension: "json")
-        let mapView = MLNMapView(frame: .zero, styleURL: styleURL)
+        MMLAuth.install()
+        let mapView = MLNMapView(frame: .zero, styleURL: BaseMap.styleURL)
         mapView.delegate = context.coordinator
         mapView.maximumZoomLevel = 18
         mapView.showsUserLocation = true
@@ -57,6 +61,7 @@ struct MapView: UIViewRepresentable {
         context.coordinator.updateTrail(on: mapView)
         context.coordinator.updateHunters(on: mapView)
         context.coordinator.applyRecentWindow(on: mapView)
+        context.coordinator.applyBaseLayer(on: mapView)
         if let step = zoomStep, step.id != context.coordinator.zoomedStep {
             context.coordinator.zoomedStep = step.id
             mapView.setZoomLevel(mapView.zoomLevel + step.delta, animated: true)
@@ -79,11 +84,13 @@ struct MapView: UIViewRepresentable {
         deinit { trailTimer?.invalidate() }
 
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+            addBaseLayers(to: style) // first of ours, so everything else draws on top
             addAreaLayers(to: style)
             addTrailLayers(to: style)
             addHunterTrailLayers(to: style)
             addHunterLayers(to: style)
             styleLoaded = true
+            applyBaseLayer(on: mapView)
             applyRecentWindow(on: mapView)
             updateTrail(on: mapView, force: true)
             // Segments age even when standing still, so the fade is recomputed every few seconds.
@@ -142,6 +149,39 @@ struct MapView: UIViewRepresentable {
             mapView.setVisibleCoordinateBounds(bounds, edgePadding: padding, animated: true, completionHandler: nil)
         }
 
+        private func addBaseLayers(to style: MLNStyle) {
+            // Over the style's own layers (the MML vector map), under ours.
+            for spec in [BaseMap.rasterTopo, BaseMap.ortho].compactMap({ $0 }) {
+                let source = MLNRasterTileSource(identifier: spec.id, tileURLTemplates: spec.tiles, options: [
+                    .tileSize: 256,
+                    .maximumZoomLevel: spec.maxZoom,
+                    .attributionHTMLString: spec.attribution,
+                ])
+                style.addSource(source)
+                style.addLayer(MLNRasterStyleLayer(identifier: spec.id, source: source))
+            }
+            let spec = LeadShotBan.source
+            let source = MLNRasterTileSource(identifier: spec.id, tileURLTemplates: spec.tiles, options: [
+                .tileSize: 256,
+                .minimumZoomLevel: LeadShotBan.minZoom,
+                .maximumZoomLevel: spec.maxZoom,
+                .attributionHTMLString: spec.attribution,
+            ])
+            style.addSource(source)
+            let layer = MLNRasterStyleLayer(identifier: spec.id, source: source)
+            layer.minimumZoomLevel = Float(LeadShotBan.minZoom)
+            style.addLayer(layer)
+        }
+
+        /// Shows the chosen base layer and hides the other.
+        func applyBaseLayer(on mapView: MLNMapView) {
+            guard styleLoaded, let style = mapView.style else { return }
+            let shown = BaseMap.effective(parent.baseLayer)
+            style.layer(withIdentifier: "base-topo")?.isVisible = shown == .topo
+            style.layer(withIdentifier: "base-ortho")?.isVisible = shown == .ortho
+            style.layer(withIdentifier: LeadShotBan.source.id)?.isVisible = parent.showLeadShotBan
+        }
+
         private func addAreaLayers(to style: MLNStyle) {
             guard let url = Bundle.main.url(forResource: "areas", withExtension: "geojson") else { return }
             let kanalintuCodes = parent.areas.map(\.code)
@@ -192,7 +232,7 @@ struct MapView: UIViewRepresentable {
             let labels = MLNSymbolStyleLayer(identifier: "area-labels", source: labelSource)
             labels.minimumZoomLevel = 5.5
             labels.text = NSExpression(forKeyPath: "name")
-            labels.textFontNames = NSExpression(forConstantValue: ["Open Sans Semibold"])
+            labels.textFontNames = NSExpression(forConstantValue: BaseMap.labelFonts)
             labels.textFontSize = Self.zoomRamp([6: 11, 11: 15])
             labels.maximumTextWidth = NSExpression(forConstantValue: 9)
             labels.textColor = NSExpression(forConstantValue: UIColor.darkGray)
@@ -385,7 +425,7 @@ struct MapView: UIViewRepresentable {
 
             let initials = MLNSymbolStyleLayer(identifier: "hunters-initials", source: source)
             initials.text = NSExpression(forKeyPath: "initials")
-            initials.textFontNames = NSExpression(forConstantValue: ["Open Sans Semibold"])
+            initials.textFontNames = NSExpression(forConstantValue: BaseMap.labelFonts)
             initials.textFontSize = NSExpression(forConstantValue: 11)
             initials.textColor = NSExpression(forConstantValue: UIColor.white)
             initials.textAllowsOverlap = NSExpression(forConstantValue: true)
@@ -394,7 +434,7 @@ struct MapView: UIViewRepresentable {
 
             let name = MLNSymbolStyleLayer(identifier: "hunters-name", source: source)
             name.text = NSExpression(forKeyPath: "label")
-            name.textFontNames = NSExpression(forConstantValue: ["Open Sans Semibold"])
+            name.textFontNames = NSExpression(forConstantValue: BaseMap.labelFonts)
             name.textFontSize = NSExpression(forConstantValue: 12)
             name.textAnchor = NSExpression(forConstantValue: "top")
             name.maximumTextWidth = NSExpression(forConstantValue: 24) // keep "Name · 7 min" on one line

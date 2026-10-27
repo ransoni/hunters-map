@@ -21,3 +21,6 @@ ios/build/
 *.tfstate.*
 tfplan
 crash.log
+
+# Local secrets (MML API key), see ios/Config.xcconfig
+ios/Secrets.xcconfig

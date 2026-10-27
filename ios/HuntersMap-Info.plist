@@ -22,6 +22,11 @@
 		</dict>
 	</array>
 
+	<!-- Maanmittauslaitos API key for the topo map and orthophotos: MML_API_KEY in
+	     ios/Secrets.xcconfig (gitignored, see ios/Config.xcconfig). Empty = OpenTopoMap. -->
+	<key>MMLAPIKey</key>
+	<string>$(MML_API_KEY)</string>
+
 	<!-- hunters-map backend (Cloud Run): terraform output api_url in infra/terraform. -->
 	<key>HuntersMapAPIBaseURL</key>
 	<string>https://hunters-map-api-nlpcgelvnq-lz.a.run.app</string>
