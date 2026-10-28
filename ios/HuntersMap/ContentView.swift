@@ -81,7 +81,7 @@ struct ContentView: View {
                 openSettings(nil)
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.title3.weight(.semibold))
+                    .font(.title3.weight(.regular))
                     .frame(width: 50, height: 50)
             }
             .accessibilityLabel("Asetukset")
@@ -106,7 +106,7 @@ struct ContentView: View {
             }
         } label: {
             Image(systemName: sharing.isSharing ? "person.2.wave.2.fill" : "person.2.fill")
-                .font(.title3.weight(.semibold))
+                .font(.title3.weight(.regular))
                 .foregroundStyle(sharing.isSharing ? Color.green : Color.red)
                 .frame(width: 44, height: 50)
                 .opacity(togglingSharing ? 0.4 : 1)
@@ -157,7 +157,7 @@ struct ContentView: View {
             }
         } label: {
             Image(systemName: "square.3.layers.3d")
-                .font(.title2.weight(.medium))
+                .font(.title2.weight(.light))
                 .frame(width: 54, height: 54)
                 .contentShape(Rectangle())
         }
@@ -181,7 +181,7 @@ struct ContentView: View {
             zoomStep = MapView.ZoomStep(id: (zoomStep?.id ?? 0) + 1, delta: delta)
         } label: {
             Image(systemName: icon)
-                .font(.title2.weight(.medium))
+                .font(.title2.weight(.light))
                 .frame(width: 54, height: 54)
                 .contentShape(Rectangle())
         }
@@ -208,7 +208,7 @@ struct ContentView: View {
             }
         } label: {
             Image(systemName: locationIcon)
-                .font(.title2.weight(.medium))
+                .font(.title2.weight(.light))
                 .frame(width: 54, height: 54)
                 .contentShape(Rectangle())
         }
